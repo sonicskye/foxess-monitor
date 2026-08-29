@@ -1,0 +1,58 @@
+# systemd unit for the FoxESS monitor backend.
+#
+#   sudo cp deploy/foxess-monitor.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now foxess-monitor
+#   journalctl -u foxess-monitor -f
+#
+# Edit User, WorkingDirectory and the node path below to match your machine.
+
+[Unit]
+Description=FoxESS Monitor — read-only solar and battery dashboard
+Documentation=file:/opt/foxess-monitor/docs/RUNBOOK.md
+After=network-online.target
+Wants=network-online.target
+
+# These belong in [Unit], not [Service] — systemd silently ignores them under [Service].
+# If it fails 5 times in 60s something is genuinely wrong (bad key, port taken); stop hammering
+# and leave the failure visible in `systemctl status`.
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User=foxess
+Group=foxess
+WorkingDirectory=/opt/foxess-monitor
+
+# .env holds FOXESS_API_KEY. Keep it chmod 600 and owned by this user.
+EnvironmentFile=/opt/foxess-monitor/.env
+Environment=NODE_ENV=production
+# JSON logs into the journal rather than a TTY-pretty format.
+Environment=LOG_PRETTY=false
+
+# Adjust if node lives elsewhere (`command -v node`); nvm installs are NOT in /usr/bin.
+ExecStart=/usr/bin/node dist/server.js
+
+# Always come back. A crash is logged with a stack before exit, so the journal explains why.
+Restart=always
+RestartSec=5
+
+# The process only ever reads the API and writes to data/. Nothing else needs to be reachable.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/foxess-monitor/data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+# Comfortable on a 4 GB machine; Node idles around 60 MB here.
+MemoryMax=400M
+
+[Install]
+WantedBy=multi-user.target

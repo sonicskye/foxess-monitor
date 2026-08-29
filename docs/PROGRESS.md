@@ -130,30 +130,54 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## Step 8 — Deploy
 
-- [ ] `deploy/foxess-monitor.service` — systemd unit
-- [ ] `deploy/kiosk.sh` — chromium kiosk launcher
-- [ ] `docs/RUNBOOK.md` — deploy, restart, read logs, diagnose quota
-- [ ] `README.md` — setup from zero
+- [x] `deploy/foxess-monitor.service` — systemd unit, hardened, restart-limited
+- [x] `deploy/kiosk.sh` — browser kiosk launcher; waits for `/healthz`, disables screen blanking
+- [x] `docs/RUNBOOK.md` — install, daily use, diagnosing (stale / quota / 40256 / 40400), updating
+- [x] `README.md` — setup from zero
+      files: deploy/*, docs/RUNBOOK.md, README.md
+      verified: `systemd-analyze verify` on the unit · `bash -n` on the script ·
+      **the compiled `dist/server.js` run end to end**, serving the built frontend
+
+> `systemd-analyze verify` caught a real bug: `StartLimitBurst` / `StartLimitIntervalSec` were in
+> `[Service]`, where systemd **silently ignores them**. They belong in `[Unit]`. The restart limiter
+> would have done nothing.
+
+---
+
+## Done
+
+All eight steps complete. 213 tests, typecheck clean on both projects, production build verified.
+
+**The one thing not yet verified: no request has ever been made to the real FoxESS API.**
+Everything is tested against a stubbed fetch and a synthetic day. Run `npm run probe` with a real
+`FOXESS_API_KEY` to close that out — it spends 3 calls and prints the live variable table.
 
 ---
 
 ## Resume here
 
-**Current step:** 8 — Deploy.
+**Current step:** none — the build is complete.
 
-**State:** Steps 0–7 complete (213 tests green, typecheck clean). The application works end to end
-on synthetic data. The API client has still **never spoken to the real API** — that is the one
-outstanding verification.
+**State:** All eight steps done. 213 tests green, typecheck clean, production build verified by
+running `dist/server.js` and exercising every route.
 
 **Next command:**
 
 ```sh
-npm run build && FOXESS_MOCK=1 MOCK_OFFSET_HOURS=9 npm start   # then open http://localhost:8080
+cp .env.example .env      # set FOXESS_API_KEY and TZ
+npm run probe             # 3 real API calls — the only unverified path
 ```
 
-**Open questions for the owner:** `.env` needs a real `FOXESS_API_KEY`. Then `npm run probe`
-(3 calls) confirms the signature works against the live API. Everything else is done and verified
-offline.
+**Open questions for the owner:** just the one — `npm run probe` against the real account. If it
+returns `40256`, read `DECISIONS.md` §1 and `RUNBOOK.md` → "Everything returns errno 40256" before
+changing anything.
+
+**Ideas if the project is picked up again**, none of them started:
+
+- Multi-inverter UI: the backend already discovers and polls several, but the header has no device
+  switcher, so only the first is shown.
+- Multi-day history: samples are retained for 14 days but only today is charted.
+- Cost/tariff overlay on the grid strip.
 
 **Watch out for:**
 
