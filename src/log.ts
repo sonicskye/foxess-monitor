@@ -82,7 +82,10 @@ export function redact(value: unknown, seen = new WeakSet<object>()): unknown {
 
   if (Array.isArray(value)) return value.map((item) => redact(item, seen));
 
-  const out: Record<string, unknown> = {};
+  // Object.create(null): keys come from arbitrary data, and `out['__proto__'] = …` on a normal
+  // object literal would mutate that object's prototype. Harmless here (it is discarded after
+  // serialisation) but free to rule out.
+  const out: Record<string, unknown> = Object.create(null);
   for (const [key, val] of Object.entries(value)) {
     out[key] = SECRET_KEYS.has(key.toLowerCase()) ? MASK : redact(val, seen);
   }

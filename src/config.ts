@@ -8,7 +8,8 @@
  * refuse to run rather than discover it at 14:00.
  */
 
-import { addSecret, type Level } from './log.ts';
+import { statSync } from 'node:fs';
+import { addSecret, createLogger, type Level } from './log.ts';
 
 export interface PollConfig {
   realSeconds: number;
@@ -233,5 +234,28 @@ export function loadConfig(env: Env = process.env): Config {
   // Everything logged from here on is scrubbed of the key.
   addSecret(apiKey);
 
+  warnIfEnvFileIsReadable();
+
   return config;
+}
+
+/**
+ * Warn when `.env` is readable by anyone but its owner.
+ *
+ * The runbook says `chmod 600` but nothing enforced it, and the file holds a credential that can
+ * change inverter settings. A warning catches the deployment mistake without refusing to start —
+ * failing hard here would be worse, since the dashboard would go down for a permissions nit.
+ */
+function warnIfEnvFileIsReadable(envPath = '.env'): void {
+  try {
+    const mode = statSync(envPath).mode & 0o077;
+    if (mode !== 0) {
+      createLogger('config').warn(
+        'the .env file is readable by other users — it holds an API key that can change inverter settings',
+        { path: envPath, mode: `0${(statSync(envPath).mode & 0o777).toString(8)}`, fix: 'chmod 600 .env' },
+      );
+    }
+  } catch {
+    // No .env at all is normal: the environment may be supplied by systemd or the shell.
+  }
 }

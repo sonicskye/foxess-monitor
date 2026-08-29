@@ -226,11 +226,39 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 > `.env` min-SOC fallback (the inverter answers `battery/soc/get` fine) and refining the
 > `hasBattery` skip.
 
+## Step 12 — Security review and hardening
+
+- [x] **HIGH** — a malformed `Host` header crashed the process (`ERR_INVALID_URL` →
+      `uncaughtException` → `exit(1)`), and systemd's `StartLimitBurst=5` made five of them a
+      *permanent* outage. The URL is now parsed against a fixed base, never the Host header, plus
+      `try`/`catch` around the handler.
+- [x] **MEDIUM** — `createReadStream(...).pipe(res)` had no `error` handler: same crash class.
+- [x] **MEDIUM** — `maxConnections`, explicit timeouts, and a 32-stream SSE cap returning 503.
+- [x] **MEDIUM** — CSP, `nosniff`, `X-Frame-Options`, `Referrer-Policy`; theme bootstrap moved to
+      `web/public/theme-init.js` so `script-src 'self'` holds.
+- [x] **INFO** — `.env` permission warning at startup; `Object.create(null)` in `redact()`.
+- [x] Documented the open-access decision and what it reveals.
+      files: src/{server,config,log}.ts, web/{index.html,public/theme-init.js},
+      test/server.test.ts, docs/**, README.md
+      verified: `npm test` 253/253 · typecheck clean · `npm audit` 0 vulnerabilities · the raw
+      `Host: evil host` attack that previously killed the process now returns 200 eight times over
+      and the server survives · CSP verified in a real browser across kiosk/phone/tablet with
+      **zero console errors**, inline styles intact, SSE live and no theme flash · resolution
+      matrix unchanged
+
+> **Assessed as sound, no change needed:** API key never served (test-enforced), redaction tested,
+> path traversal guarded and tested, read-only enforced by a test asserting no `/set` path, zero
+> runtime dependencies, no `innerHTML`/`eval`. MD5 signing is mandated by the FoxESS API.
+
+> **Deliberately not added: HSTS.** It is what a checklist would suggest and it would be actively
+> harmful — forcing HTTPS on a plain-HTTP LAN origin locks out every device that visited once. A
+> test asserts it stays absent.
+
 ---
 
 ## Done
 
-All eleven steps complete. 218 tests, typecheck clean on both projects, production build verified.
+All twelve steps complete. 218 tests, typecheck clean on both projects, production build verified.
 
 **The one thing not yet verified: no request has ever been made to the real FoxESS API.**
 Everything is tested against a stubbed fetch and a synthetic day. Run `npm run probe` with a real
@@ -242,7 +270,7 @@ Everything is tested against a stubbed fetch and a synthetic day. Run `npm run p
 
 **Current step:** none — the build is complete.
 
-**State:** All eleven steps done. 245 tests green, typecheck clean, production build verified by
+**State:** All twelve steps done. 253 tests green, typecheck clean, production build verified by
 running `dist/server.js` and exercising every route.
 
 **Next command:**

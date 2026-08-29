@@ -211,6 +211,17 @@ foxess-monitor` after fixing the cause.
 
 ---
 
+## Security notes
+
+- **`.env` must be `chmod 600`.** It holds a credential that can change inverter settings. The
+  server warns at startup if the file is group- or world-readable.
+- **The dashboard is open to your LAN** — see [Who can see it](../README.md#who-can-see-it). Set
+  `HOST=127.0.0.1` to restrict it to the kiosk machine.
+- **Do not put it on the public internet** without a reverse proxy that adds TLS and
+  authentication. It was designed for a trusted home network.
+- **Do not add `Strict-Transport-Security`.** It would force HTTPS on an origin served over plain
+  HTTP, persistently locking out every device that had visited. A test asserts it stays absent.
+
 ## Updating
 
 ```sh

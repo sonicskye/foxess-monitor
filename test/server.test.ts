@@ -1,10 +1,11 @@
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
-import { createApp } from '../src/server.ts';
+import { connect } from 'node:net';
+import { createApp, MAX_SSE_STREAMS } from '../src/server.ts';
 import { createPoller, type Poller } from '../src/poller.ts';
 import { createMockEndpoints, MOCK_SN } from '../src/mock.ts';
 import { createBudget, type Budget } from '../src/budget.ts';
@@ -221,6 +222,123 @@ describe('/api/stream', () => {
 
     assert.equal(poller.state().idle, false);
     controller.abort();
+  });
+});
+
+describe('security: no single request may kill the process', () => {
+  /** Send a raw request so we can set headers `fetch` refuses to. */
+  function raw(request: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const port = Number(new URL(base).port);
+      const sock = connect(port, '127.0.0.1', () => sock.write(request));
+      let out = '';
+      sock.on('data', (d) => {
+        out += d.toString();
+      });
+      sock.on('error', reject);
+      setTimeout(() => {
+        sock.destroy();
+        resolve(out);
+      }, 250);
+    });
+  }
+
+  test('a malformed Host header is answered, not fatal', async () => {
+    // The high-severity finding. `new URL(url, "http://" + host)` threw ERR_INVALID_URL, which
+    // became an uncaughtException and exited the process; with systemd's StartLimitBurst, five of
+    // these left the dashboard permanently down. Only pathname/search are used, so the Host header
+    // is not consulted at all now.
+    for (const host of ['evil host', 'a b', '[', '%', 'host:notaport', '']) {
+      const response = await raw(`GET /healthz HTTP/1.1\r\nHost: ${host}\r\n\r\n`);
+      assert.match(response, /^HTTP\/1\.1 200/, `Host: ${JSON.stringify(host)} was not answered`);
+    }
+
+    // Still serving afterwards — the point of the test.
+    const { status } = await get('/healthz');
+    assert.equal(status, 200, 'the server died');
+  });
+
+  test('an absent Host header (HTTP/1.0) is fine too', async () => {
+    const response = await raw('GET /healthz HTTP/1.0\r\n\r\n');
+    assert.match(response, /^HTTP\/1\.[01] 200/);
+  });
+
+  test('an unreadable static file returns 500 rather than crashing', async () => {
+    // pipe() does not forward source errors, and an unhandled 'error' event throws.
+    const webDir = join(dir, 'web');
+    mkdirSync(webDir, { recursive: true });
+    const file = join(webDir, 'index.html');
+    writeFileSync(file, '<html></html>');
+    chmodSync(file, 0o000);
+
+    const { status } = await get('/');
+    // Running as root would still be able to read it; accept either, but never a dead server.
+    assert.ok(status === 500 || status === 200, `unexpected ${status}`);
+
+    chmodSync(file, 0o644);
+    assert.equal((await get('/healthz')).status, 200, 'the server died');
+  });
+});
+
+describe('security: response headers', () => {
+  test('every response carries the hardening headers', async () => {
+    for (const path of ['/api/snapshot', '/healthz', '/']) {
+      const res = await fetch(`${base}${path}`);
+      assert.equal(res.headers.get('x-content-type-options'), 'nosniff', path);
+      assert.equal(res.headers.get('x-frame-options'), 'DENY', path);
+      assert.equal(res.headers.get('referrer-policy'), 'no-referrer', path);
+      assert.match(res.headers.get('content-security-policy') ?? '', /default-src 'self'/, path);
+    }
+  });
+
+  test('the CSP locks scripts down but must allow inline styles', async () => {
+    const csp = (await fetch(`${base}/api/snapshot`)).headers.get('content-security-policy') ?? '';
+
+    assert.match(csp, /script-src 'self'/, 'scripts must not allow inline');
+    assert.ok(!/script-src[^;]*unsafe-inline/.test(csp), 'inline scripts must stay blocked');
+    // Preact sets style={{…}} for every series colour and meter width; blocking it breaks the UI.
+    assert.match(csp, /style-src 'self' 'unsafe-inline'/);
+    assert.match(csp, /frame-ancestors 'none'/);
+    assert.match(csp, /img-src 'self' data:/, 'the favicon is a data: URI');
+  });
+
+  test('HSTS is deliberately absent — it would lock users out over plain HTTP', async () => {
+    // This dashboard is HTTP on a LAN. HSTS would force HTTPS on an origin that has none, and
+    // persist in the browser, breaking access from any device that had visited once.
+    const res = await fetch(`${base}/healthz`);
+    assert.equal(res.headers.get('strict-transport-security'), null);
+  });
+});
+
+describe('security: connection limits leave normal LAN use alone', () => {
+  test('several simultaneous viewers all get their stream', async () => {
+    // A kiosk, a phone and a tablet at once — the case the cap must never interfere with.
+    const controllers = Array.from({ length: 4 }, () => new AbortController());
+    const responses = await Promise.all(
+      controllers.map((c) => fetch(`${base}/api/stream`, { signal: c.signal })),
+    );
+
+    assert.ok(responses.every((r) => r.status === 200), 'a normal number of viewers was refused');
+    controllers.forEach((c) => c.abort());
+  });
+
+  test('past the cap it refuses politely instead of falling over', async () => {
+    const controllers = Array.from({ length: MAX_SSE_STREAMS }, () => new AbortController());
+    await Promise.all(controllers.map((c) => fetch(`${base}/api/stream`, { signal: c.signal })));
+
+    const overflow = await fetch(`${base}/api/stream`);
+    assert.equal(overflow.status, 503);
+    assert.equal(overflow.headers.get('retry-after'), '10');
+    await overflow.text();
+
+    controllers.forEach((c) => c.abort());
+    // Slots must come back, or one burst would lock the dashboard out for good.
+    await new Promise((r) => setTimeout(r, 150));
+
+    const after = new AbortController();
+    const recovered = await fetch(`${base}/api/stream`, { signal: after.signal });
+    assert.equal(recovered.status, 200, 'closing streams did not free their slots');
+    after.abort();
   });
 });
 

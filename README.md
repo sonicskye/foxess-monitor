@@ -12,8 +12,9 @@ change anything.
 
 ## What it shows
 
-- **Battery charge** as the headline figure, with remaining kWh, health, and a low-battery warning
-  that carries an icon and a word as well as a colour.
+- **Battery charge** as the headline figure, with **stored vs usable** energy — the inverter holds a
+  reserve it will not discharge below, so "remaining" overstates what you actually have — plus a
+  low-battery warning that carries an icon and a word as well as a colour.
 - **A live energy flow diagram** — where power is going right now between solar, home, battery and
   grid, with direction shown by arrowheads, numbers and animation.
 - **Today's totals** — solar generated, home consumed, imported, exported, battery charged and
@@ -21,6 +22,7 @@ change anything.
 - **An intraday chart** of solar, home and battery power, with a diverging strip below showing grid
   import above the line and export below.
 - Light and dark themes, a data-table view of every charted value, and a diagnostics panel.
+- Scales from a 1024×600 netbook to a 4K wall display, with a portrait layout on phones.
 
 ## Requirements
 
@@ -64,8 +66,8 @@ The browser never talks to FoxESS. Two reasons, either sufficient on its own:
   by the number of tabs and viewers, and every page reload would spend more. Polling server-side
   makes consumption a constant, whoever is watching.
 
-The default schedule uses about **1272 calls a day (88% of the ceiling)**, leaving headroom for
-restarts and retries:
+The default schedule uses **1276 calls a day (89% of the ceiling)**, leaving headroom for restarts
+and retries:
 
 | Job | Interval | Calls/day |
 |---|---:|---:|
@@ -73,6 +75,7 @@ restarts and retries:
 | generation summary | 10 min | 144 |
 | day totals | 10 min | 144 |
 | quota check | 60 min | 24 |
+| battery min-SOC | 6 h | 4 |
 
 Three things keep that honest: the process **refuses to start** if the configured intervals project
 over budget; a persisted counter that a crash loop cannot reset gates every request; and every call
@@ -84,6 +87,21 @@ even reducing everything else to once a day overshoots. 90 seconds is the fastes
 The intraday chart costs no extra calls: the live poll's own samples are appended to a daily NDJSON
 file, with a single `history/query` at startup to backfill from midnight so a restart doesn't
 truncate the graph.
+
+## Who can see it
+
+The dashboard has **no authentication** and binds `0.0.0.0` by default, so anyone who can reach the
+port on your network can read it. That is deliberate — it is what makes checking it from your phone
+work — but it is worth knowing what it reveals.
+
+Visible: solar output, household consumption, battery charge and today's totals. From those,
+**someone can infer when the house is empty or everyone is asleep**, so treat it the way you would
+treat any window onto your household routine.
+
+Not visible: the API key, which never leaves the server. And nothing is writable — no request can
+change a setting on your inverter.
+
+To restrict it to the kiosk machine only, set `HOST=127.0.0.1` in `.env`.
 
 ## Configuration
 
@@ -109,7 +127,7 @@ npm run dev:web               # Vite dev server, proxies /api to the backend
 The server has **zero runtime dependencies** — `node:http`, native `fetch`, `node:crypto`. Only
 `typescript`, `vite` and `preact` are dev dependencies, and the frontend ships hand-rolled SVG
 rather than a charting library. The target is a Celeron with 4 GB of RAM running unattended for
-months, so the bundle is 35 KB of JS and there is no dependency tree to rot.
+months, so the bundle is ~41 KB of JS and there is no dependency tree to rot.
 
 Further reading:
 
@@ -121,7 +139,7 @@ Further reading:
 
 ## Read-only, by construction
 
-Only seven FoxESS endpoints are implemented and every one is a read. The API's `set` endpoints —
+Only eight FoxESS endpoints are implemented and every one is a read. The API's `set` endpoints —
 minimum SOC, force-charge windows, schedules, inverter settings — are deliberately absent, and a
 test asserts that no declared path is a write path. Adding one would change what this project is.
 

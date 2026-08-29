@@ -247,3 +247,44 @@ becomes a rate-limit *storm*. `test/poller.test.ts` pins this.
 
 **Cost is bounded**: retries pass through `budget.acquire()` like every other call, and the backoff
 is capped at the normal interval.
+
+---
+
+## 12. The dashboard is open on the LAN, and no request may kill the process
+
+**Decision.** No authentication, binds `0.0.0.0`, documented rather than locked down. In exchange,
+nothing a request can contain is allowed to take the process down, and the standard hardening
+headers are sent.
+
+**Why open.** Viewing it from a phone on the sofa is a real use, and a token in a kiosk URL is
+friction for a read-only display on a home network. What that exposes is worth stating plainly,
+because it is a **privacy** question rather than a security one: solar output, household load,
+battery SOC and daily totals let anyone on the network infer **when the house is empty or everyone
+is asleep**. The API key is not exposed and nothing is writable. `HOST=127.0.0.1` is the lockdown
+switch for anyone who wants it.
+
+**Why the crash-resistance matters more than it looks.** The systemd unit has `Restart=always` but
+also `StartLimitBurst=5 / StartLimitIntervalSec=60`. So a request that can crash the process is not
+a transient annoyance — **five of them inside a minute leave the dashboard down until someone runs
+`systemctl reset-failed`**. That turned a malformed `Host` header into an unauthenticated,
+persistent denial of service. Two rules follow:
+
+- the request handler is wrapped in `try`/`catch`, and
+- the URL is parsed against a **fixed base**, never `req.headers.host`. Only `pathname` and
+  `searchParams` are used, so the attacker-controlled header is not consulted at all — removing the
+  input rather than guarding it.
+
+**Two header choices that are deliberate:**
+
+- **`style-src` allows `'unsafe-inline'`.** Preact sets `style={{…}}` for every series colour, meter
+  width and flow-diagram stroke; blocking it breaks the whole UI. Inline *style* is far lower risk
+  than inline *script*, and `script-src` stays at `'self'` — which is why the theme bootstrap lives
+  in `web/public/theme-init.js` rather than inline in `index.html`.
+- **No `Strict-Transport-Security`.** This is plain HTTP on a LAN. HSTS would tell the browser to
+  force HTTPS on an origin that has none, and it persists — locking every device that had once
+  visited out of the dashboard. A test asserts the header stays absent, because it is exactly the
+  kind of thing a security checklist would tell someone to add.
+
+**Limits are sized for a household**: 32 concurrent SSE streams against a realistic four, and
+`server.maxConnections = 256`. `requestTimeout` is disabled deliberately — SSE streams never
+"finish", and a timeout there would sever live updates.
