@@ -83,6 +83,27 @@ export function Diagnostics({ timeZone, onClose }: { timeZone: string; onClose: 
               </dl>
             </section>
 
+            {/* Failing jobs first: the error used to be a column in a table nobody scrolled to. */}
+            {Object.entries(data.jobs).some(([, j]) => j.lastError) && (
+              <section>
+                <h3>Failing jobs</h3>
+                <ul class="diag-failures">
+                  {Object.entries(data.jobs)
+                    .filter(([, j]) => j.lastError)
+                    .map(([name, j]) => (
+                      <li key={name}>
+                        <strong>{name}</strong> — {j.lastError}
+                        <span class="diag-muted">
+                          {' '}
+                          ({j.failures} failure{j.failures === 1 ? '' : 's'}
+                          {j.nextRunAt ? `, retrying ${clockTimeWithSeconds(j.nextRunAt, timeZone)}` : ''})
+                        </span>
+                      </li>
+                    ))}
+                </ul>
+              </section>
+            )}
+
             <section>
               <h3>Jobs</h3>
               <table class="diag-table">

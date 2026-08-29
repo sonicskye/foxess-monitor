@@ -200,11 +200,37 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 > Root size lands at **14.4px on 1366×768**, so the original target is pixel-unchanged; it scales to
 > ~20px at 1080p and caps at 32px for a 4K wall display.
 
+## Step 11 — Scheduler recovery (from a real incident)
+
+- [x] `schedule()` retries a **failed** job after 30 s, doubling up to its own interval; a
+      **budget-denied** job reschedules normally; success resets the backoff
+- [x] `discover` failure no longer returns early with nothing scheduled
+- [x] Jobs blocked on discovery throw `DeferredError` — retry semantics of a failure, log volume
+      of a no-op
+- [x] `batteryEnergy()` derives usable/reserved from `stored × (soc − floor) / soc`, dropping the
+      capacity dependency entirely
+- [x] `Reserved: unknown — min SOC not read yet` instead of a bare `—`; failing jobs listed at the
+      top of the diagnostics panel
+- [x] `test/poller.test.ts` — **new**
+      files: src/poller.ts, src/normalize.ts, web/src/components/{SocMeter,Diagnostics}.tsx,
+      test/{poller,normalize}.test.ts, .env.example, docs/**
+      verified: `npm test` 245/245 · typecheck clean · outage reproduced end to end (network down
+      6 s at startup → devices at 8 s, floor at 14 s, usable immediately after) · resolution matrix
+      unchanged
+
+> **What happened.** An internet outage produced `Usable — kWh` on the real system. The outage
+> caused the symptom; the scheduler made it last six hours. `Reserved` showing `—` was the tell:
+> that meant the floor was missing, not the capacity.
+>
+> Two items from the first draft were **dropped as speculative** once the evidence came in: an
+> `.env` min-SOC fallback (the inverter answers `battery/soc/get` fine) and refining the
+> `hasBattery` skip.
+
 ---
 
 ## Done
 
-All ten steps complete. 218 tests, typecheck clean on both projects, production build verified.
+All eleven steps complete. 218 tests, typecheck clean on both projects, production build verified.
 
 **The one thing not yet verified: no request has ever been made to the real FoxESS API.**
 Everything is tested against a stubbed fetch and a synthetic day. Run `npm run probe` with a real
@@ -216,7 +242,7 @@ Everything is tested against a stubbed fetch and a synthetic day. Run `npm run p
 
 **Current step:** none — the build is complete.
 
-**State:** All ten steps done. 234 tests green, typecheck clean, production build verified by
+**State:** All eleven steps done. 245 tests green, typecheck clean, production build verified by
 running `dist/server.js` and exercising every route.
 
 **Next command:**

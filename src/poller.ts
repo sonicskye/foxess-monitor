@@ -86,11 +86,15 @@ export interface PollerOptions {
   store: SampleStore;
   log: Logger;
   now?: () => number;
+  /** Test seam: first retry delay after a failed job. */
+  retryBaseMs?: number;
 }
 
 export function createPoller(opts: PollerOptions): Poller {
   const { config, api, budget, audit, store, log } = opts;
   const now = opts.now ?? (() => Date.now());
+  /** First retry delay after a failure, then doubling up to the job's own interval. */
+  const RETRY_BASE_MS = opts.retryBaseMs ?? 30_000;
 
   let devices: DeviceInfo[] = [];
   const snapshots: Record<string, Snapshot> = {};
@@ -145,12 +149,27 @@ export function createPoller(opts: PollerOptions): Poller {
   }
 
   /**
+   * A job that cannot run yet because something it depends on has not arrived.
+   *
+   * Distinct from a real failure so it can retry like one without shouting like one.
+   */
+  class DeferredError extends Error {
+    constructor(what: string) {
+      super(`waiting for ${what}`);
+      this.name = 'DeferredError';
+    }
+  }
+
+  /** What a job attempt did, so the scheduler knows whether to retry early. */
+  type Outcome = 'ok' | 'failed' | 'skipped';
+
+  /**
    * Run a job, recording health and swallowing the error.
    *
    * A failing job must never stop the schedule: a transient API blip should cost one poll, not the
    * rest of the day's updates.
    */
-  async function run(name: string, task: () => Promise<void>): Promise<void> {
+  async function run(name: string, task: () => Promise<void>): Promise<Outcome> {
     const state = health(name);
     state.lastRunAt = new Date(now()).toISOString();
     state.runs += 1;
@@ -159,32 +178,91 @@ export function createPoller(opts: PollerOptions): Poller {
       await task();
       state.lastSuccessAt = new Date(now()).toISOString();
       state.lastError = null;
+      return 'ok';
     } catch (err) {
       state.failures += 1;
       state.lastError = describe(err);
 
       if (err instanceof BudgetDeniedError) {
-        // Expected back-pressure, not a fault. The budget logs the interesting part itself.
+        // Expected back-pressure, not a fault. The budget logs the interesting part itself, and a
+        // fast retry against an already-spent quota would just be a retry storm.
         log.debug('job skipped by the budget', { job: name, reason: err.reason });
-      } else {
-        log.warn('job failed', { job: name, err });
+        return 'skipped';
       }
+      if (err instanceof DeferredError) {
+        // Retry semantics of a failure, log volume of a no-op. During an outage every dependent
+        // job defers on every tick; logging each at warn with a stack buries the ONE line that
+        // matters — the actual network error from discovery.
+        log.debug('job deferred', { job: name, reason: err.message });
+        return 'failed';
+      }
+      log.warn('job failed', { job: name, err });
+      return 'failed';
     }
   }
 
-  /** Schedule `task` on a self-rescheduling timer, so a slow run cannot overlap the next. */
-  function schedule(name: string, intervalSeconds: () => number, task: () => Promise<void>): void {
+  interface ScheduleOptions {
+    /** Stop rescheduling once the job has succeeded once. For genuine one-shots like backfill. */
+    once?: boolean;
+    /** Wait before the first attempt. Used when the caller has already tried once itself. */
+    startDelayMs?: number;
+  }
+
+  /**
+   * Schedule `task` on a self-rescheduling timer, so a slow run cannot overlap the next.
+   *
+   * A FAILED run retries on a short backoff instead of waiting out the full interval. Without this,
+   * a brief network drop at startup left the six-hourly settings job — and therefore the battery's
+   * usable-energy figures — broken for six hours, and a failed `discover` left the poller with no
+   * devices and nothing to poll until someone restarted it. Recovery should take a minute.
+   *
+   * A BUDGET-DENIED run is not a failure: nothing was sent, the quota is simply spent, and retrying
+   * sooner would only burn more of a budget that has already run out. Those reschedule normally.
+   */
+  function schedule(
+    name: string,
+    intervalSeconds: () => number,
+    task: () => Promise<void>,
+    options: ScheduleOptions = {},
+  ): void {
+    let retryMs = RETRY_BASE_MS;
+
     const tick = async (): Promise<void> => {
       if (stopped) return;
-      await run(name, task);
+      const outcome = await run(name, task);
       if (stopped) return;
 
-      const delay = intervalSeconds() * 1000;
+      const intervalMs = intervalSeconds() * 1000;
+
+      if (outcome === 'ok') {
+        retryMs = RETRY_BASE_MS;
+        if (options.once) {
+          health(name).nextRunAt = null;
+          return;
+        }
+      }
+
+      let delay = intervalMs;
+      if (outcome === 'failed') {
+        // Never retry more slowly than the normal cadence, nor faster than the base delay.
+        delay = Math.min(retryMs, intervalMs);
+        retryMs = Math.min(retryMs * 2, intervalMs);
+        log.debug('job failed — retrying early', { job: name, retryInMs: delay });
+      }
+
       health(name).nextRunAt = new Date(now() + delay).toISOString();
       const timer = setTimeout(tick, delay);
       timer.unref?.();
       timers.add(timer);
     };
+
+    if (options.startDelayMs && options.startDelayMs > 0) {
+      health(name).nextRunAt = new Date(now() + options.startDelayMs).toISOString();
+      const timer = setTimeout(tick, options.startDelayMs);
+      timer.unref?.();
+      timers.add(timer);
+      return;
+    }
     void tick();
   }
 
@@ -214,11 +292,12 @@ export function createPoller(opts: PollerOptions): Poller {
       }));
 
     if (found.length === 0) {
-      log.error('no inverters found', {
-        configured: config.deviceSNs,
-        available: listed.map((d) => d.deviceSN),
-      });
-      return;
+      // Thrown, not logged-and-returned: the scheduler decides whether to retry from the outcome,
+      // and a silent no-op here would be recorded as success and never tried again.
+      throw new Error(
+        `no matching inverters (configured: ${config.deviceSNs.join(',') || 'auto'}; ` +
+          `available: ${listed.map((d) => d.deviceSN).join(',') || 'none'})`,
+      );
     }
 
     devices = found;
@@ -247,7 +326,9 @@ export function createPoller(opts: PollerOptions): Poller {
   }
 
   async function pollReal(): Promise<void> {
-    if (devices.length === 0) return;
+    // Deferred rather than a silent no-op, so this retries on the short backoff once discovery
+    // lands instead of waiting out a further full poll interval with a blank dashboard.
+    if (devices.length === 0) throw new DeferredError('device discovery');
 
     // One call covers up to 50 serials, so a multi-inverter site costs the same as a single one.
     const results = await api.realQuery(devices.map((d) => d.sn));
@@ -299,9 +380,10 @@ export function createPoller(opts: PollerOptions): Poller {
 
   async function pollSettings(): Promise<void> {
     const device = devices[0];
+    if (!device) throw new DeferredError('device discovery');
     // A grid-tied inverter has no battery settings; asking every 6 hours forever would just log
-    // an error every 6 hours forever.
-    if (!device || !device.hasBattery) return;
+    // an error every 6 hours forever. A genuine no-op, so it counts as success.
+    if (!device.hasBattery) return;
 
     const result = await api.batterySoc(device.sn);
     const next = {
@@ -318,7 +400,7 @@ export function createPoller(opts: PollerOptions): Poller {
 
   async function pollTotals(): Promise<void> {
     const device = devices[0];
-    if (!device) return;
+    if (!device) throw new DeferredError('device discovery');
 
     const at = new Date(now());
     const parts = new Intl.DateTimeFormat('en-CA', {
@@ -341,7 +423,7 @@ export function createPoller(opts: PollerOptions): Poller {
 
   async function pollGeneration(): Promise<void> {
     const device = devices[0];
-    if (!device) return;
+    if (!device) throw new DeferredError('device discovery');
 
     const result = await api.generation(device.sn);
     generation = {
@@ -368,7 +450,8 @@ export function createPoller(opts: PollerOptions): Poller {
    */
   async function backfillToday(): Promise<void> {
     const device = devices[0];
-    if (!device) return;
+    // Throw so this retries once discovery lands, rather than being marked done as a no-op.
+    if (!device) throw new DeferredError('device discovery');
 
     const at = now();
     const begin = startOfLocalDay(new Date(at), config.timeZone);
@@ -401,13 +484,21 @@ export function createPoller(opts: PollerOptions): Poller {
       // Sequential and awaited: discovery must land before anything that needs a serial, and the
       // per-path gate spaces these out anyway.
       await run('discover', discoverDevices);
+
       if (devices.length === 0) {
-        log.error('no inverters to poll — check FOXESS_DEVICE_SN and the account');
-        return;
+        // Do NOT bail out. Returning here used to leave the process alive with nothing scheduled,
+        // so a network blip during startup produced a permanently dead dashboard that still served
+        // a page and reported healthy. Keep retrying; the other jobs defer until devices appear.
+        log.error('no inverters yet — will keep retrying discovery');
+        schedule('discover', () => config.poll.totalsSeconds, discoverDevices, {
+          once: true,
+          startDelayMs: RETRY_BASE_MS,
+        });
       }
 
-      await run('backfill', backfillToday);
-      await run('quota', pollQuota);
+      // Backfill is a genuine one-shot, but it must still survive a failed first attempt — that is
+      // the difference between a full day's chart and a chart starting at whenever the net returned.
+      schedule('backfill', () => config.poll.totalsSeconds, backfillToday, { once: true });
 
       store.prune(new Date(now()));
       audit.prune(new Date(now()));

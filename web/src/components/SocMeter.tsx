@@ -30,11 +30,21 @@ const LEVEL_LABEL = {
   critical: { icon: '▲', text: 'Critical' },
 } as const;
 
-function Row({ label, value, note }: { label: string; value: string; note?: string }) {
+function Row({
+  label,
+  value,
+  note,
+  muted,
+}: {
+  label: string;
+  value: string;
+  note?: string;
+  muted?: boolean;
+}) {
   return (
     <div class="soc-row">
       <span class="soc-row-label">{label}</span>
-      <span class="soc-row-value">{value}</span>
+      <span class={`soc-row-value${muted ? ' is-muted' : ''}`}>{value}</span>
       {note && <span class="soc-row-note">{note}</span>}
     </div>
   );
@@ -106,10 +116,22 @@ export function SocMeter({
           value={`${kwh(battery?.usableKwh)} kWh`}
           note={battery?.usablePercent == null ? undefined : `${percent(battery.usablePercent)}%`}
         />
+        {/*
+          * A bare em dash cannot be told apart from "not fetched yet". Say which it is: the floor
+          * comes from a six-hourly call, so an unknown value usually means that call has not
+          * landed rather than that the inverter has no reserve.
+          */}
         <Row
           label="Reserved"
-          value={floor === null ? '—' : `${floor} %`}
-          note={battery?.reservedKwh == null ? undefined : `${kwh(battery.reservedKwh)} kWh`}
+          value={floor === null ? 'unknown' : `${floor} %`}
+          note={
+            floor === null
+              ? 'min SOC not read yet'
+              : battery?.reservedKwh == null
+                ? undefined
+                : `${kwh(battery.reservedKwh)} kWh`
+          }
+          muted={floor === null}
         />
       </div>
     </div>

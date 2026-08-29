@@ -315,13 +315,55 @@ describe('batteryEnergy', () => {
     });
   });
 
-  test('without a capacity, percentages still work', () => {
-    // usablePercent needs only SOC and the floor, so it survives an unknown pack size.
+  test('kWh figures do NOT need a capacity estimate', () => {
+    // Regression: usable used to be `stored − capacity × floor/100`, so an unknown pack size — a
+    // restart on a low battery with no nameplate — showed "usable —" even with the floor known.
+    // The capacity term cancels, so stored/soc/floor alone are enough.
     const e = batteryEnergy({ ...PACK, capacityKwh: null, runningState: 163 });
 
     assert.equal(e.usablePercent, 54);
-    assert.equal(e.usableKwh, null);
+    assert.equal(e.usableKwh?.toFixed(2), '5.62', 'same answer as with a known capacity');
+    assert.equal(e.reservedKwh?.toFixed(2), '2.08');
+    assert.equal(e.capacityKwh, null, 'capacity itself is still unknown, and reported as such');
+  });
+
+  test('the derived figures agree with the capacity-based ones', () => {
+    const withCapacity = batteryEnergy({ ...PACK, runningState: 163 });
+    const without = batteryEnergy({ ...PACK, capacityKwh: null, runningState: 163 });
+
+    assert.equal(withCapacity.usableKwh?.toFixed(4), without.usableKwh?.toFixed(4));
+    assert.equal(withCapacity.reservedKwh?.toFixed(4), without.reservedKwh?.toFixed(4));
+  });
+
+  test('falls back to the capacity form at 0% SOC, where the division is undefined', () => {
+    const e = batteryEnergy({
+      soc: 0, residualKwh: 0, capacityKwh: 10.4, minSoc: 10, minSocOnGrid: 20, runningState: 163,
+    });
+
+    assert.equal(e.reservedKwh?.toFixed(2), '2.08');
+    assert.equal(e.usableKwh, 0);
+    assert.equal(e.usablePercent, 0);
+  });
+
+  test('an empty pack with no capacity yields nulls, not a divide by zero', () => {
+    const e = batteryEnergy({
+      soc: 0, residualKwh: 0, capacityKwh: null, minSoc: 10, minSocOnGrid: 20, runningState: 163,
+    });
+
     assert.equal(e.reservedKwh, null);
+    assert.equal(e.usableKwh, null);
+    assert.ok(!Number.isNaN(e.usableKwh as number));
+  });
+
+  test('reserved never exceeds what is actually stored', () => {
+    // Below the floor, the pack does not hold the full reserve — claiming it does would imply
+    // energy that is not there.
+    const e = batteryEnergy({
+      soc: 8, residualKwh: 0.83, capacityKwh: null, minSoc: 10, minSocOnGrid: 20, runningState: 163,
+    });
+
+    assert.ok(e.reservedKwh! <= 0.83 + 1e-9, `reserved ${e.reservedKwh} exceeds stored 0.83`);
+    assert.equal(e.usableKwh, 0);
   });
 
   test('a zero floor means everything stored is usable', () => {

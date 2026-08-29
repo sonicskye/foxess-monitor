@@ -301,19 +301,55 @@ export function batteryEnergy(input: {
     return { ...EMPTY_BATTERY_ENERGY, capacityKwh: capacity, storedKwh: stored };
   }
 
-  const reserved = capacity === null ? null : capacity * (floor / 100);
-  // Clamped: SOC can sit below the floor after an outage, or right after the owner raises it.
-  const usableKwh = stored === null || reserved === null ? null : Math.max(0, stored - reserved);
   const usablePercent = soc === null || !Number.isFinite(soc) ? null : Math.max(0, soc - floor);
 
+  /*
+   * Reserved and usable are derived from the LIVE reading, not from a capacity estimate.
+   *
+   * Since capacity = stored / (soc/100), the capacity term cancels:
+   *
+   *   reserved = capacity × floor/100 = stored × floor / soc
+   *   usable   = stored − reserved    = stored × (soc − floor) / soc
+   *
+   * That matters because capacity is only known once SOC has been above 20% (below that the
+   * integer-percent division is too noisy) or if the inverter reports the `capicty` nameplate.
+   * Depending on it meant a restart on a low battery showed "usable —" even with the floor known.
+   * These need only stored, soc and floor, all of which arrive on every poll.
+   */
+  const canDerive = stored !== null && soc !== null && Number.isFinite(soc) && soc > 0;
+
+  const reserved = canDerive
+    ? Math.max(0, stored * Math.min(floor, soc) / soc)
+    : capacity === null
+      ? null
+      : capacity * (floor / 100);
+
+  // Clamped: SOC can sit below the floor after an outage, or right after the owner raises it.
+  const usableKwh = canDerive
+    ? Math.max(0, stored * Math.max(0, soc - floor) / soc)
+    : stored === null || reserved === null
+      ? null
+      : Math.max(0, stored - reserved);
+
   return {
-    capacityKwh: capacity,
+    capacityKwh: round(capacity),
     storedKwh: stored,
     floorPercent: floor,
-    reservedKwh: reserved,
-    usableKwh,
+    reservedKwh: round(reserved),
+    usableKwh: round(usableKwh),
     usablePercent,
   };
+}
+
+/**
+ * Trim floating-point dust to 0.1 Wh.
+ *
+ * The division above turns an exact 7.7 into 7.700000000000001, which is noise several orders of
+ * magnitude below anything the inverter actually measures, but it leaks into the API payload and
+ * makes values awkward to compare.
+ */
+function round(value: number | null): number | null {
+  return value === null ? null : Number(value.toFixed(4));
 }
 
 /** Today's energy totals, in kWh. */

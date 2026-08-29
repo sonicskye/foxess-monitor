@@ -218,3 +218,32 @@ short window. It lands at ~14.4px on 1366×768, so the original target is unchan
 **Grid track sizes are easy to miss.** `grid-template-rows: minmax(0, 300px)` is not a `height`, so
 a naive property-name-driven conversion skips it, and the top row stays a 300px sliver on a 4K
 display while the chart takes everything else.
+
+---
+
+## 11. A failed job retries on a short backoff; a budget-denied one does not
+
+**Decision.** `schedule()` in `src/poller.ts` distinguishes three outcomes. On **failure** it retries
+after 30 s, doubling up to the job's own interval. On **budget denial** it reschedules normally. On
+**success** the backoff resets.
+
+**Why.** It previously rescheduled at the full interval regardless, which meant the recovery time
+after any transient error was the job's *period*, not its severity:
+
+- the six-hourly settings job failing once left the battery's usable-energy figures blank **for six
+  hours** — this is the bug that a brief internet outage actually produced;
+- `discover` failing at startup was worse: `start()` returned early having scheduled *nothing*, so
+  the process stayed up, served a page and reported healthy while polling absolutely nothing until
+  someone restarted it.
+
+Jobs that cannot run because discovery has not landed now throw `DeferredError` instead of quietly
+returning. Returning success would mark a one-shot job done and never retry it; throwing gets the
+retry, and the distinct type keeps the log quiet — during an outage every dependent job defers on
+every tick, and logging each at `warn` with a stack buries the one line that matters.
+
+**Budget denial is deliberately not a failure.** Nothing was sent; the quota is simply spent.
+Retrying sooner would spend more of a budget that has already run out, which is how a rate limit
+becomes a rate-limit *storm*. `test/poller.test.ts` pins this.
+
+**Cost is bounded**: retries pass through `budget.acquire()` like every other call, and the backoff
+is capped at the normal interval.

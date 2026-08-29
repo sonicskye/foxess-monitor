@@ -102,6 +102,41 @@ presenting old numbers as current.
 journalctl -u foxess-monitor | grep stale     # logged once on the way out, once on the way back
 ```
 
+### The battery panel shows "Usable —" or "Reserved unknown"
+
+`Reserved` tells you which failure it is:
+
+- **`unknown`** — the minimum SOC has not been read. The floor comes from `battery/soc/get`, which
+  runs every six hours. Check the failing-jobs list at the top of the diagnostics panel (`d`), or:
+
+  ```sh
+  curl -s localhost:8080/api/diagnostics | python3 -c \
+    "import json,sys; print(json.load(sys.stdin)['jobs']['settings'])"
+  ```
+
+  A network error self-heals — a failed job now retries after 30 s rather than waiting out its
+  interval. An `errno` in the message means the inverter rejected the call, which may mean the model
+  does not support that endpoint.
+
+- **a percentage, but no kWh beside it** — the floor is known and the figures are being computed
+  from the live reading, so this should not persist. If it does, `stored` or `soc` is missing from
+  the poll.
+
+Min SOC itself is **set in the FoxESS app**, not here — this dashboard only reads it.
+
+### Nothing is updating at all, but the page loads
+
+Check that discovery succeeded:
+
+```sh
+curl -s localhost:8080/api/diagnostics | python3 -c \
+  "import json,sys; d=json.load(sys.stdin); print(d['devices'], d['jobs']['discover'])"
+```
+
+An empty `devices` list means the inverter was never found. That retries on its own now; if it
+keeps failing, the error names the cause (network, credentials, or a serial in `FOXESS_DEVICE_SN`
+that is not on the account).
+
 ### The quota is running out
 
 Press `d`, or:
