@@ -68,10 +68,18 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## Step 5 — Domain model & storage
 
-- [ ] `src/normalize.ts` — raw variables → `Snapshot`; signed grid/battery; staleness
-- [ ] `src/store.ts` — NDJSON append/read/downsample/prune
-- [ ] `test/normalize.test.ts` — both sign conventions, missing variables, staleness
-- [ ] `test/store.test.ts` — downsampling, gap preservation, retention
+- [x] `src/normalize.ts` — raw variables → `Snapshot`; signed grid/battery; staleness;
+      `normalizeDayTotals`, `normalizeHistory`, `parseInverterTime`
+- [x] `src/store.ts` — NDJSON append/read/backfill/prune + `downsample`
+- [x] `test/normalize.test.ts` — both sign conventions, missing-vs-zero, staleness, time parsing
+- [x] `test/store.test.ts` — downsampling, gap preservation, retention, torn-line recovery
+      files: src/normalize.ts, src/store.ts, test/normalize.test.ts, test/store.test.ts
+      verified: `npm test` 166/166 · typecheck clean
+
+> Two invariants worth keeping: a missing variable normalises to **null, never 0** (a grid-tied
+> inverter with no battery must not read as "0 kW battery"), and an outage longer than 10 minutes
+> becomes an explicit **null break** in the series so the chart shows a hole rather than a straight
+> line drawn across hours the inverter was offline.
 
 ## Step 6 — Poller & server
 
@@ -103,9 +111,9 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## Resume here
 
-**Current step:** 5 — Domain model & storage.
+**Current step:** 6 — Poller & server.
 
-**State:** Steps 0–4 complete (109 tests green, typecheck clean). The API client is written and
+**State:** Steps 0–5 complete (166 tests green, typecheck clean). The API client is written and
 fully tested against a stubbed fetch, but **has never spoken to the real API**.
 
 **Next command:**
