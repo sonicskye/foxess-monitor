@@ -73,6 +73,7 @@ function buildSnapshotPayload(deps: AppDeps) {
     snapshot: poller.primary(),
     totals: state.totals,
     generation: state.generation,
+    battery: state.battery,
     quota: {
       used: budgetState.used,
       cap: budgetState.cap,

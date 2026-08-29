@@ -38,6 +38,17 @@ export interface DayTotals {
   generationKwh: number | null;
 }
 
+/** Stored vs usable vs reserved. See `batteryEnergy()` in src/normalize.ts. */
+export interface BatteryEnergy {
+  capacityKwh: number | null;
+  storedKwh: number | null;
+  /** Minimum SOC in force right now — minSocOnGrid on-grid, minSoc off-grid. */
+  floorPercent: number | null;
+  reservedKwh: number | null;
+  usableKwh: number | null;
+  usablePercent: number | null;
+}
+
 export interface DeviceInfo {
   sn: string;
   stationName: string | null;
@@ -52,6 +63,7 @@ export interface SnapshotPayload {
   snapshots: Record<string, Snapshot>;
   snapshot: Snapshot | null;
   totals: DayTotals | null;
+  battery: BatteryEnergy | null;
   generation: { todayKwh: number | null; monthKwh: number | null; cumulativeKwh: number | null } | null;
   quota: {
     used: number;

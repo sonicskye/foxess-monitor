@@ -34,33 +34,11 @@
 import type { JSX } from 'preact';
 import type { Snapshot } from '../api.ts';
 import { batteryDirection, gridDirection, kw, runningStateLabel } from '../format.ts';
+import { useSize } from '../useSize.ts';
 import { AlertIcon, BatteryIcon, GridIcon, HomeIcon, InverterIcon, SolarIcon } from './Icons.tsx';
 
 /** Below this, a flow is idle: the edge greys out and loses its arrow and number. */
 const IDLE_KW = 0.01;
-
-/*
- * Canvas aspect (2.2) is matched to the panel it sits in (~650x292) so the diagram fills the space
- * instead of letterboxing. A cross needs vertical room, so the arms are deliberately asymmetric:
- * short vertical ones to solar and battery, long horizontal ones to grid and home, which is where
- * the spare width is.
- */
-const W = 660;
-const H = 300;
-
-const CARD_W = 146;
-/** Solar and home need no status line, so their cards are shorter. */
-const CARD_H = 74;
-const PLAIN_H = 62;
-/** The hub is larger, so it reads as the centre of the system rather than a fifth peer. */
-const HUB_W = 154;
-const HUB_H = 82;
-
-const HUB = { x: W / 2, y: H / 2 };
-const SOLAR = { x: W / 2, y: 38 };
-const BATTERY = { x: W / 2, y: H - 40 };
-const GRID = { x: 84, y: H / 2 };
-const HOME = { x: W - 84, y: H / 2 };
 
 interface NodeSpec {
   x: number;
@@ -69,13 +47,56 @@ interface NodeSpec {
   h: number;
 }
 
-const NODES: Record<string, NodeSpec> = {
-  hub: { ...HUB, w: HUB_W, h: HUB_H },
-  solar: { ...SOLAR, w: CARD_W, h: PLAIN_H },
-  battery: { ...BATTERY, w: CARD_W, h: CARD_H },
-  grid: { ...GRID, w: CARD_W, h: CARD_H },
-  home: { ...HOME, w: CARD_W, h: PLAIN_H },
+interface Geometry {
+  w: number;
+  h: number;
+  nodes: Record<'hub' | 'solar' | 'battery' | 'grid' | 'home', NodeSpec>;
+  portrait: boolean;
+}
+
+/*
+ * WIDE: a cross, aspect 2.2 to match the desktop panel (~650x292) so the diagram fills it instead
+ * of letterboxing. The arms are deliberately asymmetric — short vertical ones to solar and battery,
+ * long horizontal ones to grid and home, which is where the spare width is.
+ */
+const WIDE: Geometry = {
+  w: 660,
+  h: 300,
+  portrait: false,
+  nodes: {
+    hub: { x: 330, y: 150, w: 154, h: 82 },
+    // Solar and home need no status line, so their cards are shorter.
+    solar: { x: 330, y: 38, w: 146, h: 62 },
+    battery: { x: 330, y: 260, w: 146, h: 74 },
+    grid: { x: 84, y: 150, w: 146, h: 74 },
+    home: { x: 576, y: 150, w: 146, h: 62 },
+  },
 };
+
+/*
+ * NARROW: a diamond, for phones and portrait tablets.
+ *
+ * The cross does not survive a 390px width — grid, hub and home side by side need well over 400px
+ * before the arms have room for an arrowhead. So grid and home drop to their own row below the hub
+ * and the arms become diagonal, and the battery sits below, its edge running down the clear channel
+ * between them. Same four edges, same directions; only the coordinates change.
+ */
+const NARROW: Geometry = {
+  w: 380,
+  h: 500,
+  portrait: true,
+  nodes: {
+    solar: { x: 190, y: 38, w: 172, h: 62 },
+    hub: { x: 190, y: 156, w: 176, h: 80 },
+    // Grid and home leave a clear channel between them (163..217) for the battery edge to run down.
+    grid: { x: 86, y: 292, w: 146, h: 74 },
+    home: { x: 294, y: 292, w: 146, h: 62 },
+    battery: { x: 190, y: 428, w: 172, h: 74 },
+  },
+};
+
+/** Below this width-to-height ratio the cross stops working; see NARROW. */
+const PORTRAIT_ASPECT = 1.45;
 
 function Card({
   node,
@@ -155,6 +176,12 @@ interface Edge {
 }
 
 export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
+  // Measured so the layout can switch shape; the SVG itself still scales via its viewBox.
+  const [wrapRef, size] = useSize<HTMLDivElement>();
+  const geo = size.width > 0 && size.width / Math.max(1, size.height) < PORTRAIT_ASPECT ? NARROW : WIDE;
+  const { nodes: NODES, w: W, h: H } = geo;
+  const { hub: HUB, solar: SOLAR, battery: BATTERY, grid: GRID, home: HOME } = NODES;
+
   const solar = snapshot?.solarKw ?? null;
   const load = snapshot?.loadKw ?? null;
   const grid = snapshot?.gridKw ?? null;
@@ -168,21 +195,34 @@ export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
 
   // Gaps between a card edge and the arrow, so the arrowhead never touches the card.
   const GAP = 7;
-  const hubTop = HUB.y - HUB_H / 2;
-  const hubBottom = HUB.y + HUB_H / 2;
-  const hubLeft = HUB.x - HUB_W / 2;
-  const hubRight = HUB.x + HUB_W / 2;
+  const hubTop = HUB.y - HUB.h / 2;
+  const hubBottom = HUB.y + HUB.h / 2;
+  const hubLeft = HUB.x - HUB.w / 2;
+  const hubRight = HUB.x + HUB.w / 2;
+
+  /*
+   * In portrait, grid and home hang below the hub rather than beside it, so their edges run
+   * diagonally from the hub's lower corners to the top of each card. The battery edge then drops
+   * straight down the clear channel between them.
+   */
+  const gridEdge = geo.portrait
+    ? `M ${GRID.x} ${GRID.y - GRID.h / 2 - GAP} L ${hubLeft + 18} ${hubBottom + GAP}`
+    : `M ${GRID.x + GRID.w / 2 + GAP} ${GRID.y} L ${hubLeft - GAP} ${GRID.y}`;
+
+  const homeEdge = geo.portrait
+    ? `M ${hubRight - 18} ${hubBottom + GAP} L ${HOME.x} ${HOME.y - HOME.h / 2 - GAP}`
+    : `M ${hubRight + GAP} ${HOME.y} L ${HOME.x - HOME.w / 2 - GAP} ${HOME.y}`;
 
   const edges: Edge[] = [
     {
       id: 'solar',
       // Solar → inverter. PV only ever produces, so this never reverses.
-      d: `M ${SOLAR.x} ${SOLAR.y + PLAIN_H / 2 + GAP} L ${SOLAR.x} ${hubTop - GAP}`,
+      d: `M ${SOLAR.x} ${SOLAR.y + SOLAR.h / 2 + GAP} L ${SOLAR.x} ${hubTop - GAP}`,
       power: Math.max(0, solar ?? 0),
       color: 'var(--solar)',
       reverse: false,
       labelX: SOLAR.x + 12,
-      labelY: (SOLAR.y + PLAIN_H / 2 + hubTop) / 2 + 4,
+      labelY: (SOLAR.y + SOLAR.h / 2 + hubTop) / 2 + 4,
       anchor: 'start',
       description:
         (solar ?? 0) >= IDLE_KW ? `solar producing ${kw(solar)} kilowatts` : 'solar not producing',
@@ -191,12 +231,12 @@ export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
     {
       id: 'battery',
       // Drawn inverter → battery, i.e. the charging direction. Discharging reverses it.
-      d: `M ${BATTERY.x} ${hubBottom + GAP} L ${BATTERY.x} ${BATTERY.y - CARD_H / 2 - GAP}`,
+      d: `M ${BATTERY.x} ${hubBottom + GAP} L ${BATTERY.x} ${BATTERY.y - BATTERY.h / 2 - GAP}`,
       power: Math.abs(battery ?? 0),
       color: 'var(--battery)',
       reverse: batteryWay === 'discharging',
       labelX: BATTERY.x + 12,
-      labelY: (hubBottom + BATTERY.y - CARD_H / 2) / 2 + 4,
+      labelY: (hubBottom + BATTERY.y - BATTERY.h / 2) / 2 + 4,
       anchor: 'start',
       description:
         batteryWay === 'idle'
@@ -207,15 +247,15 @@ export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
     {
       id: 'grid',
       // Drawn grid → inverter, i.e. the importing direction. Exporting reverses it.
-      d: `M ${GRID.x + CARD_W / 2 + GAP} ${GRID.y} L ${hubLeft - GAP} ${GRID.y}`,
+      d: gridEdge,
       power: Math.abs(grid ?? 0),
       // Identity, not state: a node must not repaint as power changes direction. The arrowhead and
       // the "importing"/"exporting" word carry direction. See docs/DECISIONS.md §8.
       color: 'var(--grid)',
       reverse: gridWay === 'export',
-      labelX: (GRID.x + CARD_W / 2 + hubLeft) / 2,
-      labelY: GRID.y - 12,
-      anchor: 'middle',
+      labelX: geo.portrait ? GRID.x - 4 : (GRID.x + GRID.w / 2 + hubLeft) / 2,
+      labelY: geo.portrait ? (hubBottom + GRID.y - GRID.h / 2) / 2 + 4 : GRID.y - 12,
+      anchor: geo.portrait ? 'end' : 'middle',
       description:
         gridWay === 'idle'
           ? 'grid balanced'
@@ -225,13 +265,13 @@ export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
     {
       id: 'home',
       // Inverter → home. Loads only ever consume, so this never reverses.
-      d: `M ${hubRight + GAP} ${HOME.y} L ${HOME.x - CARD_W / 2 - GAP} ${HOME.y}`,
+      d: homeEdge,
       power: Math.max(0, load ?? 0),
       color: 'var(--home)',
       reverse: false,
-      labelX: (hubRight + HOME.x - CARD_W / 2) / 2,
-      labelY: HOME.y - 12,
-      anchor: 'middle',
+      labelX: geo.portrait ? HOME.x + 4 : (hubRight + HOME.x - HOME.w / 2) / 2,
+      labelY: geo.portrait ? (hubBottom + HOME.y - HOME.h / 2) / 2 + 4 : HOME.y - 12,
+      anchor: geo.portrait ? 'start' : 'middle',
       description: `home using ${kw(load)} kilowatts`,
       absent: load === null,
     },
@@ -244,7 +284,8 @@ export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
     .join('; ');
 
   return (
-    <svg class="flow" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Energy flow: ${summary}`}>
+    <div class="flow-wrap" ref={wrapRef}>
+      <svg class="flow" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Energy flow: ${summary}`}>
       <defs>
         {edges.map((edge) => (
           <marker
@@ -308,7 +349,7 @@ export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
       )}
 
       <Card
-        node={NODES['solar']!}
+        node={SOLAR}
         icon={<SolarIcon size={22} />}
         label="Solar"
         value={kw(solar)}
@@ -318,7 +359,7 @@ export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
       />
 
       <Card
-        node={NODES['grid']!}
+        node={GRID}
         icon={<GridIcon size={22} />}
         label="Grid"
         value={kw(grid === null ? null : Math.abs(grid))}
@@ -329,7 +370,7 @@ export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
       />
 
       <Card
-        node={NODES['hub']!}
+        node={HUB}
         hub
         // A fault outlines the whole card, so it is visible from across the room — which is the
         // point of a wall display.
@@ -345,7 +386,7 @@ export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
       />
 
       <Card
-        node={NODES['home']!}
+        node={HOME}
         icon={<HomeIcon size={22} />}
         label="Home"
         value={kw(load)}
@@ -354,7 +395,7 @@ export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
       />
 
       <Card
-        node={NODES['battery']!}
+        node={BATTERY}
         icon={<BatteryIcon size={22} soc={soc} />}
         label="Battery"
         value={kw(battery === null ? null : Math.abs(battery))}
@@ -363,6 +404,7 @@ export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
         color="var(--battery)"
         dim={Math.abs(battery ?? 0) < IDLE_KW}
       />
-    </svg>
+      </svg>
+    </div>
   );
 }

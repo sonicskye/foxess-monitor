@@ -158,3 +158,63 @@ surface — a red-green colourblind reader sees them as the same hue. Accepted b
 diagram is not a chart: the two nodes are perpendicular rather than mirrored, and each carries a
 text label and a distinct drawn icon, so identity never rests on hue. If a fourth *chart* series is
 ever wanted, this does not license it — see §5.
+
+---
+
+## 9. Stored energy is not usable energy
+
+**Decision.** The battery panel reports **stored**, **usable** and **reserved** separately, and the
+meter draws the reserved band. `batteryEnergy()` in `src/normalize.ts` computes all three.
+
+**Why.** The API's `ResidualEnergy` is what is physically in the pack. The inverter will not
+discharge below a minimum SOC, so on a 10.4 kWh pack with a 20% floor about 2 kWh of that can never
+reach the house. Reporting it as "remaining" overstates what the owner actually has — which matters
+most in exactly the situation where it is least affordable to be wrong, a nearly flat battery.
+
+Three things follow, each deliberate:
+
+- **The floor depends on state.** On-grid the pack is held to `minSocOnGrid`, keeping a reserve for
+  a power cut; off-grid that reserve is precisely what is being spent, so the floor drops to
+  `minSoc`. Usable energy therefore *rises* the moment the grid fails, without the pack changing.
+- **Usable clamps at zero, never negative.** SOC can sit below the floor after an outage, or the
+  instant the owner raises the floor above the current charge.
+- **Low-battery severity is measured against the floor**, not zero: 12% on a 10% floor is nearly
+  empty, while the same 12% on a 0% floor is not.
+
+**Capacity** is derived from telemetry (`stored / (soc/100)`) rather than the nameplate, because it
+is in real kWh and tracks the pack as it ages. The `batteryList[].capicty` nameplate has
+undocumented units and only seeds the estimate before SOC has been high enough to measure. See
+`API-NOTES.md`.
+
+**Cost:** 4 API calls/day. The floor changes only when the owner changes it, so the settings poll
+runs six-hourly, and it is skipped entirely on a battery-less inverter. The projection moves
+1272 → 1276 of 1440.
+
+---
+
+## 10. One fluid root size; SVG text stays in user units
+
+**Decision.** `html { font-size: clamp(11px, calc((0.55vw + 0.9vh) * var(--ui-scale, 1)), 32px) }`,
+with the stylesheet in `rem`. Plus `+`/`−` for a persisted manual nudge.
+
+**Why.** The CSS was hand-tuned for the Toshiba's 1366×768 panel — 39 fixed `px` font sizes and no
+relative units — so every other screen got the same small text in more whitespace. One fluid root
+size scales the whole dashboard, and the formula is **weighted toward viewport height** because the
+layout's hard requirement is fitting without scrolling; a width-only formula collapses on a wide,
+short window. It lands at ~14.4px on 1366×768, so the original target is unchanged.
+
+**Three things that must NOT scale**, each learned by breaking it:
+
+- **Text inside the flow diagram's SVG stays in `px` (user units).** That SVG scales through its
+  viewBox, so cards and their labels already grow together. Expressing the text in `rem` scaled it a
+  *second* time against the root size, and at 4K the values burst out of their cards.
+- **The intraday chart is the opposite case**: it draws 1:1 with CSS pixels via `useSize`, so its
+  labels are in `rem` and its padding must track the same scale — hence `PAD` in multiples of the
+  root size. With fixed padding, the axis figures and the import/export captions were clipped at 4K.
+- **Hairline borders and gridlines stay `1px`.** A scaled 1.4px border renders blurry; a hairline
+  should stay a hairline at any size. Media-query breakpoints stay in `px` too — they describe the
+  viewport, not the type.
+
+**Grid track sizes are easy to miss.** `grid-template-rows: minmax(0, 300px)` is not a `height`, so
+a naive property-name-driven conversion skips it, and the top row stays a 300px sliver on a 4K
+display while the chart takes everything else.

@@ -118,7 +118,23 @@ Returns the inverters owned by the account. Used once at startup when `FOXESS_DE
 
 ### `GET /op/v0/device/detail?sn=…` — device metadata
 
-Model, station/plant name, status. Used once at startup for the header.
+Model, station/plant name, status, and the battery list. Used once at startup.
+
+Two capacity fields, and they are **not** the same thing:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `capacity` | integer | the **inverter's rated power, in kW**. Not battery energy. |
+| `batteryList[].capicty` | string | the battery's capacity — **note the misspelling** |
+
+`capicty` (sic) is in the same family as `ambientTemperation` and `chargeEnergyToTal`: reproduce it
+verbatim. Its **units are undocumented**, so `parseNameplateCapacityKwh()` in `src/normalize.ts`
+sums the modules and interprets by magnitude, treating anything above ~200 as watt-hours.
+
+Because that is a heuristic, the nameplate is only used to seed the estimate. The trustworthy figure
+is derived from telemetry: `ResidualEnergy / (SoC/100)`, which is in real kWh and self-calibrating
+as the pack ages. It is only computed above 20% SOC, since SOC arrives as an integer percent and the
+division amplifies the quantisation error near empty.
 
 ### `POST /op/v1/device/real/query` — **live data**
 
@@ -169,6 +185,22 @@ is built from the poller's own samples at no API cost.
 ### `GET /op/v0/device/generation?sn=…` — generation summary
 
 Returns `{ today, month, cumulative }` in kWh. One call for three headline figures.
+
+### `GET /op/v0/device/battery/soc/get?sn=…` — minimum SOC
+
+```json
+{ "errno": 0, "result": { "minSoc": 10, "minSocOnGrid": 20 } }
+```
+
+Both are integer percentages, and **which one is in force depends on the inverter's state**:
+
+| State | Floor | Why |
+|---|---|---|
+| on-grid (`runningState` 163) | `minSocOnGrid` | the pack is held back so a power cut has a reserve |
+| off-grid (164) | `minSoc` | the grid is gone; that reserve is what is being spent |
+
+This is the **read** half of a get/set pair. `battery/soc/set` exists and is deliberately not
+implemented — see `DECISIONS.md`.
 
 ### `GET /op/v0/user/getAccessCount` — quota
 

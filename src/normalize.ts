@@ -183,6 +183,139 @@ export function toSample(snapshot: Snapshot): Sample {
   };
 }
 
+/**
+ * How much of the battery is actually available.
+ *
+ * "Remaining" overstates it. The inverter will not discharge below a minimum SOC, so on a 10.4 kWh
+ * pack with a 10% floor, roughly 1 kWh of what the API calls remaining energy can never be used.
+ */
+export interface BatteryEnergy {
+  /** Usable-plus-reserved pack size, kWh. */
+  capacityKwh: number | null;
+  /** Energy in the pack right now, kWh (the API's `ResidualEnergy`). */
+  storedKwh: number | null;
+  /** The minimum SOC in force right now, %. */
+  floorPercent: number | null;
+  /** Energy held below the floor, kWh. Real, but not available to the house. */
+  reservedKwh: number | null;
+  /** Energy actually available above the floor, kWh. Never negative. */
+  usableKwh: number | null;
+  /** Percentage points above the floor. Never negative. */
+  usablePercent: number | null;
+}
+
+const EMPTY_BATTERY_ENERGY: BatteryEnergy = {
+  capacityKwh: null,
+  storedKwh: null,
+  floorPercent: null,
+  reservedKwh: null,
+  usableKwh: null,
+  usablePercent: null,
+};
+
+/** Below this SOC the capacity estimate is too noisy to trust — see `deriveCapacityKwh`. */
+export const CAPACITY_MIN_SOC = 20;
+
+/** Running state 164 = off-grid, when the reserve is being spent rather than held back. */
+const STATE_OFF_GRID = 164;
+
+/**
+ * Estimate pack capacity from a live reading: `stored / (soc/100)`.
+ *
+ * Self-calibrating and in real kWh, unlike the nameplate figure — but SOC arrives as an integer
+ * percent, so the division amplifies up to ±0.5% of quantisation error. At 80% that is under 1%;
+ * at 10% it is ±5%. Hence the floor: below `CAPACITY_MIN_SOC` this returns null and the caller
+ * keeps whatever estimate it already had.
+ */
+export function deriveCapacityKwh(soc: number | null, storedKwh: number | null): number | null {
+  if (soc === null || storedKwh === null) return null;
+  if (!Number.isFinite(soc) || !Number.isFinite(storedKwh)) return null;
+  if (soc < CAPACITY_MIN_SOC || storedKwh <= 0) return null;
+  return storedKwh / (soc / 100);
+}
+
+/**
+ * Read the nameplate pack size out of `device/detail`'s `batteryList`.
+ *
+ * The field is `capicty` — the API's own misspelling — typed as a string with **undocumented
+ * units**. Values are summed across modules, then interpreted by magnitude, which is unavoidably a
+ * heuristic: domestic packs are single-digit-to-low-tens of kWh, so anything above ~200 is read as
+ * watt-hours and anything absurd is rejected outright rather than shown as a wrong pack size.
+ *
+ * This is only a seed. Once telemetry gives a reading above `CAPACITY_MIN_SOC`,
+ * `deriveCapacityKwh` supersedes it with a real, self-calibrating figure.
+ */
+export function parseNameplateCapacityKwh(
+  batteryList: { capicty?: string | number }[] | undefined,
+): number | null {
+  if (!batteryList?.length) return null;
+
+  let total = 0;
+  for (const battery of batteryList) {
+    const raw = typeof battery.capicty === 'number' ? battery.capicty : Number(battery.capicty);
+    if (Number.isFinite(raw) && raw > 0) total += raw;
+  }
+  if (total <= 0) return null;
+
+  // > 200 is implausible as kWh for a house, so treat it as Wh.
+  const kwh = total > 200 ? total / 1000 : total;
+  // Reject anything still outside the range a domestic battery could occupy.
+  return kwh >= 0.5 && kwh <= 200 ? kwh : null;
+}
+
+/**
+ * Work out stored / usable / reserved energy.
+ *
+ * Which floor applies depends on the inverter's state. On-grid the pack is held back to
+ * `minSocOnGrid` so that a power cut has something to run on; off-grid that reserve is exactly what
+ * is being spent, and the real floor is the lower `minSoc`.
+ *
+ * Every field is independently nullable: a grid-tied inverter has none of this, and the UI must
+ * render a missing figure as "—" rather than as zero.
+ */
+export function batteryEnergy(input: {
+  soc: number | null;
+  residualKwh: number | null;
+  /** Best available capacity estimate, kWh. */
+  capacityKwh: number | null;
+  minSoc: number | null;
+  minSocOnGrid: number | null;
+  runningState: number | null;
+}): BatteryEnergy {
+  const { soc, residualKwh, capacityKwh, minSoc, minSocOnGrid, runningState } = input;
+
+  const stored = Number.isFinite(residualKwh as number) ? residualKwh : null;
+  const capacity =
+    capacityKwh !== null && Number.isFinite(capacityKwh) && capacityKwh > 0 ? capacityKwh : null;
+
+  // Off-grid spends the reserve, so the floor drops to minSoc. Either value alone is used as-is.
+  const offGrid = runningState === STATE_OFF_GRID;
+  const preferred = offGrid ? minSoc : minSocOnGrid;
+  const fallback = offGrid ? minSocOnGrid : minSoc;
+  const rawFloor = preferred ?? fallback;
+  const floor =
+    rawFloor !== null && Number.isFinite(rawFloor) ? Math.max(0, Math.min(100, rawFloor)) : null;
+
+  if (floor === null) {
+    // No floor known: report what we have, but never claim a usable figure we cannot compute.
+    return { ...EMPTY_BATTERY_ENERGY, capacityKwh: capacity, storedKwh: stored };
+  }
+
+  const reserved = capacity === null ? null : capacity * (floor / 100);
+  // Clamped: SOC can sit below the floor after an outage, or right after the owner raises it.
+  const usableKwh = stored === null || reserved === null ? null : Math.max(0, stored - reserved);
+  const usablePercent = soc === null || !Number.isFinite(soc) ? null : Math.max(0, soc - floor);
+
+  return {
+    capacityKwh: capacity,
+    storedKwh: stored,
+    floorPercent: floor,
+    reservedKwh: reserved,
+    usableKwh,
+    usablePercent,
+  };
+}
+
 /** Today's energy totals, in kWh. */
 export interface DayTotals {
   solarKwh: number | null;

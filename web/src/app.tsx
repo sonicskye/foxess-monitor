@@ -39,6 +39,20 @@ function readTheme(): Theme {
   }
 }
 
+/** Manual zoom, multiplying the fluid root size. The escape hatch for an awkward screen. */
+const SCALE_MIN = 0.6;
+const SCALE_MAX = 2;
+const SCALE_STEP = 0.1;
+
+function readScale(): number {
+  try {
+    const saved = Number(localStorage.getItem('ui-scale'));
+    return Number.isFinite(saved) && saved >= SCALE_MIN && saved <= SCALE_MAX ? saved : 1;
+  } catch {
+    return 1;
+  }
+}
+
 export function App() {
   const [payload, setPayload] = useState<SnapshotPayload | null>(null);
   const [series, setSeries] = useState<SeriesPayload | null>(null);
@@ -46,6 +60,7 @@ export function App() {
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [showTable, setShowTable] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [scale, setScale] = useState<number>(readScale);
   const [now, setNow] = useState(Date.now());
 
   // Live snapshots over SSE. One connection, pushed on each poll.
@@ -82,10 +97,28 @@ export function App() {
   }, [theme]);
 
   useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--ui-scale', String(scale));
+    try {
+      if (scale === 1) localStorage.removeItem('ui-scale');
+      else localStorage.setItem('ui-scale', String(scale));
+    } catch {
+      /* private mode */
+    }
+  }, [scale]);
+
+  useEffect(() => {
+    const nudge = (delta: number): void =>
+      setScale((s) => Math.round(Math.min(SCALE_MAX, Math.max(SCALE_MIN, s + delta)) * 100) / 100);
+
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'd') setShowDiagnostics((open) => !open);
       if (event.key === 'Escape') setShowDiagnostics(false);
       if (event.key === 't') setShowTable((open) => !open);
+      // Zoom: '=' is the unshifted '+' on most layouts, so accept both.
+      if (event.key === '+' || event.key === '=') nudge(SCALE_STEP);
+      if (event.key === '-' || event.key === '_') nudge(-SCALE_STEP);
+      if (event.key === '0') setScale(1);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -156,7 +189,7 @@ export function App() {
         </section>
 
         <section class="panel panel-side">
-          <SocMeter snapshot={snapshot} />
+          <SocMeter snapshot={snapshot} battery={payload?.battery ?? null} />
 
           <div class="tiles">
             {/* Magnitude plus a direction word. A leading "+" alongside "discharging" reads as a
@@ -233,7 +266,8 @@ export function App() {
       {showDiagnostics && <Diagnostics timeZone={timeZone} onClose={() => setShowDiagnostics(false)} />}
 
       <footer class="hint">
-        press <kbd>d</kbd> for diagnostics · <kbd>t</kbd> for the data table
+        <kbd>d</kbd> diagnostics · <kbd>t</kbd> table · <kbd>+</kbd>/<kbd>−</kbd> size
+        {scale !== 1 && <> ({Math.round(scale * 100)}%)</>}
       </footer>
     </div>
   );

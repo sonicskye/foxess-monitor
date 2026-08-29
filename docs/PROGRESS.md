@@ -171,11 +171,40 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 > are 160–170; nothing consumed the field until now, so it went unnoticed. The enum is in
 > `API-NOTES.md`, and `runningStateLabel()` reports an unknown code rather than guessing.
 
+## Step 10 — Usable battery charge, and a layout that scales
+
+- [x] `batteryEnergy()` + `deriveCapacityKwh()` + `parseNameplateCapacityKwh()` in `src/normalize.ts`
+- [x] `battery/soc/get` endpoint (read-only) and a six-hourly settings job, skipped when the
+      inverter has no battery; `projectDailyCalls()` counts it (1272 -> **1276**/day)
+- [x] Capacity derived from telemetry with an EMA, seeded from the `capicty` nameplate
+- [x] `SocMeter` — stored / usable / reserved rows, reserve band drawn on the meter, severity
+      measured against the floor
+- [x] Fluid root font size; ~150 px values converted to rem; `--ui-scale` on `+`/`−`, persisted
+- [x] Portrait flow-diagram geometry for phones; phone and portrait-tablet layouts; touch targets
+      files: src/{normalize,poller,config,server,mock}.ts, src/foxess/{endpoints,types}.ts,
+      web/src/** , test/{normalize,config,server}.test.ts, docs/**
+      verified: `npm test` 234/234 · typecheck clean · resolution matrix 1024x600 -> 3840x2160
+      plus tablet and phone, light and dark — no scroll on any desktop size, no console errors ·
+      below-floor / off-grid / no-battery states screenshotted
+
+> **Three scaling bugs, all found only by rendering at 4K:**
+> 1. Flow-diagram SVG text was converted to `rem` along with everything else. That SVG scales via
+>    its viewBox, so rem scaled the text a *second* time and the values burst out of their cards.
+>    SVG text must stay in user units.
+> 2. The intraday chart is the opposite case — it draws 1:1 in CSS pixels, so its labels *should*
+>    scale, but its padding constants did not, and the axis figures and import/export captions were
+>    clipped. `PAD` is now in multiples of the root font size.
+> 3. `grid-template-rows: minmax(0, 300px)` is not a `height`, so a property-name-driven px->rem
+>    pass skips it. The top row stayed a 300px sliver at 4K while the chart took the rest.
+
+> Root size lands at **14.4px on 1366×768**, so the original target is pixel-unchanged; it scales to
+> ~20px at 1080p and caps at 32px for a 4K wall display.
+
 ---
 
 ## Done
 
-All nine steps complete. 218 tests, typecheck clean on both projects, production build verified.
+All ten steps complete. 218 tests, typecheck clean on both projects, production build verified.
 
 **The one thing not yet verified: no request has ever been made to the real FoxESS API.**
 Everything is tested against a stubbed fetch and a synthetic day. Run `npm run probe` with a real
@@ -187,7 +216,7 @@ Everything is tested against a stubbed fetch and a synthetic day. Run `npm run p
 
 **Current step:** none — the build is complete.
 
-**State:** All nine steps done. 218 tests green, typecheck clean, production build verified by
+**State:** All ten steps done. 234 tests green, typecheck clean, production build verified by
 running `dist/server.js` and exercising every route.
 
 **Next command:**
@@ -197,9 +226,11 @@ cp .env.example .env      # set FOXESS_API_KEY and TZ
 npm run probe             # 3 real API calls — the only unverified path
 ```
 
-**Open questions for the owner:** just the one — `npm run probe` against the real account. If it
-returns `40256`, read `DECISIONS.md` §1 and `RUNBOOK.md` → "Everything returns errno 40256" before
-changing anything.
+**Open questions for the owner:** `npm run probe` against the real account. Two things to check
+when it runs: that the signature works at all (a `40256` means read `DECISIONS.md` §1 and
+`RUNBOOK.md` first), and **what `batteryList[].capicty` actually contains** — its units are
+undocumented, so `parseNameplateCapacityKwh()` guesses by magnitude and should be checked against a
+real value. The telemetry-derived capacity does not depend on it.
 
 **Ideas if the project is picked up again**, none of them started:
 

@@ -26,6 +26,8 @@ export const PATHS = {
   historyQuery: '/op/v0/device/history/query',
   reportQuery: '/op/v0/device/report/query',
   generation: '/op/v0/device/generation',
+  // The READ half of the min-SOC pair. The matching `battery/soc/set` is deliberately absent.
+  batterySoc: '/op/v0/device/battery/soc/get',
   accessCount: '/op/v0/user/getAccessCount',
 } as const;
 
@@ -150,6 +152,20 @@ export function createEndpoints(client: FoxClient) {
           dimension,
           variables: [...variables],
         },
+      });
+    },
+
+    /**
+     * The battery's minimum-SOC settings, as integer percentages.
+     *
+     * `minSocOnGrid` is the floor while grid-connected (reserve kept for a power cut);
+     * `minSoc` is the lower floor that applies once running off-grid.
+     */
+    batterySoc(sn: string): Promise<{ minSoc?: number; minSocOnGrid?: number }> {
+      return client.call<{ minSoc?: number; minSocOnGrid?: number }>({
+        method: 'GET',
+        path: PATHS.batterySoc,
+        query: { sn },
       });
     },
 

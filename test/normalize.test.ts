@@ -1,7 +1,10 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CAPACITY_MIN_SOC,
   STALE_AFTER_MS,
+  batteryEnergy,
+  deriveCapacityKwh,
   normalizeDayTotals,
   normalizeHistory,
   normalizeSnapshot,
@@ -214,6 +217,132 @@ describe('toSample', () => {
       batteryKw: null,
       soc: 74,
     });
+  });
+});
+
+describe('deriveCapacityKwh', () => {
+  test('recovers pack size from a live reading', () => {
+    assert.equal(deriveCapacityKwh(74, 7.696)?.toFixed(1), '10.4');
+    assert.equal(deriveCapacityKwh(100, 10.4), 10.4);
+  });
+
+  test('refuses to divide near empty, where integer SOC makes it unreliable', () => {
+    // At 10% SOC, a ±0.5% quantisation error is ±5% of the answer. Better to keep the previous
+    // estimate than to publish a wrong pack size.
+    assert.equal(deriveCapacityKwh(10, 1.04), null);
+    assert.equal(deriveCapacityKwh(CAPACITY_MIN_SOC - 1, 2), null);
+    assert.equal(deriveCapacityKwh(CAPACITY_MIN_SOC, 2.08)?.toFixed(1), '10.4');
+  });
+
+  test('returns null rather than Infinity or NaN on missing or zero input', () => {
+    assert.equal(deriveCapacityKwh(0, 5), null);
+    assert.equal(deriveCapacityKwh(50, 0), null);
+    assert.equal(deriveCapacityKwh(null, 5), null);
+    assert.equal(deriveCapacityKwh(50, null), null);
+    assert.equal(deriveCapacityKwh(NaN, 5), null);
+  });
+});
+
+describe('batteryEnergy', () => {
+  const PACK = { soc: 74, residualKwh: 7.7, capacityKwh: 10.4, minSoc: 10, minSocOnGrid: 20 };
+
+  test('usable is what sits above the floor, not everything stored', () => {
+    // The whole point: "7.7 kWh remaining" overstates what the house can actually draw.
+    const e = batteryEnergy({ ...PACK, runningState: 163 });
+
+    assert.equal(e.floorPercent, 20, 'on-grid holds back to minSocOnGrid');
+    assert.equal(e.reservedKwh?.toFixed(2), '2.08');
+    assert.equal(e.usableKwh?.toFixed(2), '5.62');
+    assert.equal(e.usablePercent, 54);
+    assert.equal(e.storedKwh, 7.7);
+  });
+
+  test('off-grid drops to the lower floor, because the reserve is what is being spent', () => {
+    const e = batteryEnergy({ ...PACK, runningState: 164 });
+
+    assert.equal(e.floorPercent, 10, 'off-grid uses minSoc');
+    assert.equal(e.reservedKwh?.toFixed(2), '1.04');
+    assert.equal(e.usableKwh?.toFixed(2), '6.66');
+    assert.equal(e.usablePercent, 64);
+  });
+
+  test('a power cut increases usable energy without the pack changing', () => {
+    const onGrid = batteryEnergy({ ...PACK, runningState: 163 });
+    const offGrid = batteryEnergy({ ...PACK, runningState: 164 });
+
+    assert.ok(offGrid.usableKwh! > onGrid.usableKwh!);
+    assert.equal(offGrid.storedKwh, onGrid.storedKwh, 'stored energy is unchanged');
+  });
+
+  test('clamps at zero when SOC is below the floor', () => {
+    // Happens after an outage, or the moment the owner raises the floor above current charge.
+    const e = batteryEnergy({
+      soc: 8, residualKwh: 0.83, capacityKwh: 10.4, minSoc: 10, minSocOnGrid: 20, runningState: 163,
+    });
+
+    assert.equal(e.usableKwh, 0, 'never negative');
+    assert.equal(e.usablePercent, 0);
+    assert.equal(e.storedKwh, 0.83, 'the energy is still really in there');
+  });
+
+  test('falls back to whichever floor is known', () => {
+    const onlyMinSoc = batteryEnergy({ ...PACK, minSocOnGrid: null, runningState: 163 });
+    assert.equal(onlyMinSoc.floorPercent, 10);
+
+    const onlyOnGrid = batteryEnergy({ ...PACK, minSoc: null, runningState: 164 });
+    assert.equal(onlyOnGrid.floorPercent, 20);
+  });
+
+  test('with no floor known, reports stored but claims no usable figure', () => {
+    const e = batteryEnergy({ ...PACK, minSoc: null, minSocOnGrid: null, runningState: 163 });
+
+    assert.equal(e.storedKwh, 7.7);
+    assert.equal(e.capacityKwh, 10.4);
+    assert.equal(e.floorPercent, null);
+    assert.equal(e.usableKwh, null, 'better to show nothing than to guess a floor of 0');
+    assert.equal(e.reservedKwh, null);
+  });
+
+  test('a grid-tied inverter yields all nulls, never zeros', () => {
+    const e = batteryEnergy({
+      soc: null, residualKwh: null, capacityKwh: null, minSoc: null, minSocOnGrid: null,
+      runningState: 163,
+    });
+
+    assert.deepEqual(e, {
+      capacityKwh: null, storedKwh: null, floorPercent: null,
+      reservedKwh: null, usableKwh: null, usablePercent: null,
+    });
+  });
+
+  test('without a capacity, percentages still work', () => {
+    // usablePercent needs only SOC and the floor, so it survives an unknown pack size.
+    const e = batteryEnergy({ ...PACK, capacityKwh: null, runningState: 163 });
+
+    assert.equal(e.usablePercent, 54);
+    assert.equal(e.usableKwh, null);
+    assert.equal(e.reservedKwh, null);
+  });
+
+  test('a zero floor means everything stored is usable', () => {
+    const e = batteryEnergy({ ...PACK, minSoc: 0, minSocOnGrid: 0, runningState: 163 });
+
+    assert.equal(e.reservedKwh, 0);
+    assert.equal(e.usableKwh, 7.7);
+    assert.equal(e.usablePercent, 74);
+  });
+
+  test('an out-of-range floor is clamped rather than trusted', () => {
+    assert.equal(batteryEnergy({ ...PACK, minSocOnGrid: 140, runningState: 163 }).floorPercent, 100);
+    assert.equal(batteryEnergy({ ...PACK, minSocOnGrid: -5, runningState: 163 }).floorPercent, 0);
+  });
+
+  test('a full pack at a 20% floor still reserves a fifth of it', () => {
+    const e = batteryEnergy({
+      soc: 100, residualKwh: 10.4, capacityKwh: 10.4, minSoc: 10, minSocOnGrid: 20, runningState: 163,
+    });
+    assert.equal(e.usableKwh?.toFixed(2), '8.32');
+    assert.equal(e.usablePercent, 80);
   });
 });
 

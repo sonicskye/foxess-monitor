@@ -18,6 +18,20 @@ body {
   height: 100%;
 }
 
+/*
+ * Fluid type. Everything else is in `rem`, so this one line scales the whole dashboard.
+ *
+ * Height-weighted on purpose: the layout's hard requirement is fitting without scrolling, and a
+ * width-only formula blows up on a wide, short window. Lands at ~14.4px on the 1366x768 target,
+ * matching the values this was originally hand-tuned to, then scales to ~20px at 1080p and caps at
+ * 32px so a 4K wall display is legible from across the room.
+ *
+ * --ui-scale is the manual override, nudged with +/- and persisted; see app.tsx.
+ */
+html {
+  font-size: clamp(11px, calc((0.55vw + 0.9vh) * var(--ui-scale, 1)), 32px);
+}
+
 body {
   font-family: var(--font);
   background: var(--page);
@@ -33,8 +47,8 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 8px 12px 4px;
-  gap: 8px;
+  padding:0.5rem 0.75rem 0.25rem;
+  gap:0.5rem;
   transition: opacity 180ms ease;
 }
 
@@ -56,22 +70,22 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  min-height: 32px;
+  gap:0.75rem;
+  min-height:2rem;
 }
 
 .bar-title {
   display: flex;
   align-items: baseline;
-  gap: 7px;
-  font-size: 15px;
+  gap:0.4375rem;
+  font-size:0.9375rem;
   color: var(--text-secondary);
 }
 
 .bar-title strong {
   color: var(--text-primary);
   font-weight: 600;
-  letter-spacing: 0.2px;
+  letter-spacing:0.2px;
 }
 
 .bar-sep {
@@ -79,9 +93,9 @@ body {
 }
 
 .bar-mock {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 999px;
+  font-size:0.6875rem;
+  padding:1px 0.375rem;
+  border-radius:62.4375rem;
   background: var(--warning);
   color: #0b0b0b;
   font-weight: 600;
@@ -90,21 +104,21 @@ body {
 .bar-right {
   display: flex;
   align-items: center;
-  gap: 14px;
-  font-size: 13px;
+  gap:0.875rem;
+  font-size:0.8125rem;
   color: var(--text-secondary);
 }
 
 .bar-status {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap:0.375rem;
   font-variant-numeric: tabular-nums;
 }
 
 .bar-status .dot {
-  width: 7px;
-  height: 7px;
+  width:0.4375rem;
+  height:0.4375rem;
   border-radius: 50%;
   background: var(--good);
 }
@@ -129,9 +143,9 @@ body {
 
 .bar-btn {
   font: inherit;
-  font-size: 12px;
-  padding: 3px 9px;
-  border-radius: 6px;
+  font-size:0.75rem;
+  padding:0.1875rem 0.5625rem;
+  border-radius:0.375rem;
   border: 1px solid var(--border);
   background: var(--surface-1);
   color: var(--text-secondary);
@@ -152,13 +166,13 @@ body {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(300px, 0.95fr) minmax(320px, 1fr);
-  grid-template-rows: minmax(0, 300px) auto minmax(0, 1fr);
+  grid-template-columns: minmax(18.75rem, 0.95fr) minmax(20rem, 1fr);
+  grid-template-rows: minmax(0, 18.75rem) auto minmax(0, 1fr);
   grid-template-areas:
     'flow side'
     'totals totals'
     'chart chart';
-  gap: 8px;
+  gap:0.5rem;
 }
 
 .panel {
@@ -166,7 +180,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 10px 14px;
+  padding:0.625rem 0.875rem;
   min-height: 0;
 }
 
@@ -175,14 +189,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4px;
+  padding:0.25rem;
 }
 
 .panel-side {
   grid-area: side;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap:0.625rem;
   min-height: 0;
 }
 
@@ -190,9 +204,9 @@ body {
   grid-area: chart;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap:0.125rem;
   min-height: 0;
-  padding-bottom: 4px;
+  padding-bottom:0.25rem;
 }
 
 /* A full-width strip: six figures reading left to right, the day's story in one line. */
@@ -200,8 +214,8 @@ body {
   grid-area: totals;
   display: flex;
   align-items: center;
-  gap: 20px;
-  padding: 7px 14px;
+  gap:1.25rem;
+  padding:0.4375rem 0.875rem;
 }
 
 .panel-totals .panel-title {
@@ -212,15 +226,15 @@ body {
   display: flex;
   flex: 1;
   justify-content: space-between;
-  gap: 12px;
+  gap:0.75rem;
 }
 
 .panel-totals .tile-value {
-  font-size: 17px;
+  font-size:1.0625rem;
 }
 
 .panel-title {
-  font-size: 12px;
+  font-size:0.75rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -229,6 +243,22 @@ body {
 }
 
 /* ── flow diagram ──────────────────────────────────────────────────────── */
+
+/*
+ * Sizes below are in SVG USER UNITS, not rem, and must stay that way.
+ *
+ * The diagram scales through its viewBox, so a card and its text grow together automatically. Using
+ * rem here would scale the text a SECOND time against the root font size, and on a 4K display the
+ * values burst straight out of their cards.
+ */
+
+/* The wrapper is measured so the diagram can switch between its wide and portrait layouts. */
+.flow-wrap {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+}
 
 .flow {
   width: 100%;
@@ -350,8 +380,8 @@ body {
 /* ── SOC meter ─────────────────────────────────────────────────────────── */
 
 .soc {
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 10px;
+  border-bottom:1px solid var(--border);
+  padding-bottom:0.625rem;
 }
 
 .soc-head {
@@ -361,7 +391,7 @@ body {
 }
 
 .soc-label {
-  font-size: 12px;
+  font-size:0.75rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -369,56 +399,117 @@ body {
 }
 
 .soc-badge {
-  font-size: 12px;
+  font-size:0.75rem;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap:0.25rem;
+}
+
+.soc-health {
+  font-size:0.6875rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .soc-figure {
   display: flex;
   align-items: baseline;
-  gap: 4px;
-  margin: 2px 0 6px;
+  gap:0.25rem;
+  margin:0.125rem 0 0.375rem;
 }
 
 /* The one hero figure. Proportional figures: tabular-nums looks loose at this size. */
 .soc-value {
-  font-size: 56px;
+  font-size:3.5rem;
   font-weight: 600;
   line-height: 1;
   letter-spacing: -0.02em;
 }
 
 .soc-unit {
-  font-size: 20px;
+  font-size:1.25rem;
   color: var(--text-secondary);
 }
 
 .soc-track {
-  height: 10px;
-  border-radius: 999px;
+  position: relative;
+  height:0.625rem;
+  border-radius:62.4375rem;
   background: var(--battery-track);
   overflow: hidden;
 }
 
 .soc-fill {
   height: 100%;
-  border-radius: 999px;
+  border-radius:62.4375rem;
   transition: width 400ms ease;
 }
 
-.soc-foot {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
+/*
+ * The reserved band, drawn over the fill. Hatched rather than a flat colour: the energy really is
+ * in the pack, so it should not read as empty, but it cannot reach the house, so it must not read
+ * as available either.
+ */
+.soc-reserve {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-right:1px solid var(--surface-1);
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.55) 0 2px,
+    transparent 2px 5px
+  );
+  transition: width 400ms ease;
 }
 
-.soc-soh {
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .soc-reserve {
+    background: repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.5) 0 2px, transparent 2px 5px);
+  }
+}
+
+:root[data-theme='dark'] .soc-reserve {
+  background: repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.5) 0 2px, transparent 2px 5px);
+}
+
+.soc-floor-mark {
+  position: absolute;
+  top:-0.125rem;
+  bottom:-0.125rem;
+  width:0.125rem;
+  background: var(--text-muted);
+  border-radius:1px;
+  transition: left 400ms ease;
+}
+
+.soc-rows {
+  margin-top:0.5rem;
+  display: grid;
+  gap:0.125rem;
+}
+
+.soc-row {
+  display: flex;
+  align-items: baseline;
+  gap:0.5rem;
+  font-size:0.75rem;
+}
+
+.soc-row-label {
   color: var(--text-muted);
+  min-width:3.875rem;
+}
+
+.soc-row-value {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.soc-row-note {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── stat tiles ────────────────────────────────────────────────────────── */
@@ -427,42 +518,42 @@ body {
 .totals {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px 10px;
+  gap:0.5rem 0.625rem;
   min-height: 0;
 }
 
 .tile-label {
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: 11px;
+  gap:0.3125rem;
+  font-size:0.6875rem;
   color: var(--text-muted);
   white-space: nowrap;
 }
 
 .tile-dot {
-  width: 7px;
-  height: 7px;
+  width:0.4375rem;
+  height:0.4375rem;
   border-radius: 50%;
   flex: none;
 }
 
 .tile-value {
-  font-size: 20px;
+  font-size:1.25rem;
   font-weight: 600;
   line-height: 1.15;
   color: var(--text-primary);
 }
 
 .tile-unit {
-  font-size: 11px;
+  font-size:0.6875rem;
   font-weight: 500;
   color: var(--text-muted);
-  margin-left: 3px;
+  margin-left:0.1875rem;
 }
 
 .tile-note {
-  font-size: 11px;
+  font-size:0.6875rem;
   color: var(--text-secondary);
 }
 
@@ -471,28 +562,28 @@ body {
 .chart-head {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap:0.875rem;
 }
 
 .legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap:0.75rem;
   margin-left: auto;
-  font-size: 11px;
+  font-size:0.6875rem;
   color: var(--text-secondary);
 }
 
 .legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap:0.3125rem;
 }
 
 .legend-key {
-  width: 12px;
-  height: 2px;
-  border-radius: 1px;
+  width:0.75rem;
+  height:0.125rem;
+  border-radius:1px;
 }
 
 /* The wrapper owns the space; the SVG is measured against it and drawn at true pixel size. */
@@ -541,13 +632,13 @@ body {
 .chart-tick,
 .chart-unit,
 .chart-pole {
-  font-size: 10px;
+  font-size:0.625rem;
   fill: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
 
 .chart-pole {
-  font-size: 9px;
+  font-size:0.5625rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   fill: var(--text-muted);
@@ -556,56 +647,56 @@ body {
 .chart-tooltip-suffix {
   font-weight: 400;
   color: var(--text-muted);
-  font-size: 11px;
-  margin-left: 3px;
+  font-size:0.6875rem;
+  margin-left:0.1875rem;
 }
 
 .visually-hidden {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  width:1px;
+  height:1px;
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
 
 .chart-empty {
-  padding: 28px;
+  padding:1.75rem;
   text-align: center;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size:0.8125rem;
 }
 
 .chart-tooltip {
   position: absolute;
-  top: 4px;
+  top:0.25rem;
   z-index: 5;
-  min-width: 150px;
-  padding: 7px 9px;
+  min-width:9.375rem;
+  padding:0.4375rem 0.5625rem;
   background: var(--surface-1);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius:0.5rem;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
-  font-size: 12px;
+  font-size:0.75rem;
   pointer-events: none;
 }
 
 .chart-tooltip-time {
   font-weight: 600;
-  margin-bottom: 4px;
+  margin-bottom:0.25rem;
   font-variant-numeric: tabular-nums;
 }
 
 .chart-tooltip-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap:0.375rem;
   line-height: 1.6;
 }
 
 .chart-tooltip-dot {
-  width: 8px;
-  height: 8px;
+  width:0.5rem;
+  height:0.5rem;
   border-radius: 50%;
   flex: none;
 }
@@ -637,7 +728,7 @@ body {
 .diag-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size:0.75rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -649,8 +740,8 @@ body {
   text-align: right;
   font-weight: 600;
   color: var(--text-muted);
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--border);
+  padding:0.25rem 0.5rem;
+  border-bottom:1px solid var(--border);
 }
 
 .chart-table th:first-child,
@@ -663,8 +754,8 @@ body {
 .chart-table td,
 .diag-table td {
   text-align: right;
-  padding: 3px 8px;
-  border-bottom: 1px solid var(--gridline);
+  padding:0.1875rem 0.5rem;
+  border-bottom:1px solid var(--gridline);
   color: var(--text-secondary);
 }
 
@@ -678,44 +769,44 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 50;
-  padding: 20px;
+  padding:1.25rem;
 }
 
 .diag {
   background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  width: min(880px, 100%);
+  width:min(55rem, 100%);
   max-height: 90vh;
   overflow: auto;
-  padding: 16px 20px 20px;
+  padding:1rem 1.25rem 1.25rem;
 }
 
 .diag-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 4px;
+  margin-bottom:0.25rem;
 }
 
 .diag h2 {
-  font-size: 16px;
+  font-size:1rem;
   margin: 0;
 }
 
 .diag h3 {
-  font-size: 11px;
+  font-size:0.6875rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
-  margin: 16px 0 6px;
+  margin:1rem 0 0.375rem;
 }
 
 .diag-close {
   font: inherit;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 5px;
+  font-size:0.6875rem;
+  padding:0.125rem 0.5rem;
+  border-radius:0.3125rem;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-secondary);
@@ -725,16 +816,16 @@ body {
 .diag-quota {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 12px;
+  gap:0.625rem;
+  font-size:0.75rem;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
 .diag-quota-track {
   flex: 1;
-  height: 8px;
-  border-radius: 999px;
+  height:0.5rem;
+  border-radius:62.4375rem;
   background: var(--gridline);
   overflow: hidden;
 }
@@ -745,10 +836,10 @@ body {
 
 .diag-grid {
   display: grid;
-  grid-template-columns: 130px 1fr;
-  gap: 3px 12px;
-  margin: 8px 0 0;
-  font-size: 12px;
+  grid-template-columns: 8.125rem 1fr;
+  gap:0.1875rem 0.75rem;
+  margin:0.5rem 0 0;
+  font-size:0.75rem;
 }
 
 .diag-grid dt {
@@ -762,7 +853,7 @@ body {
 
 .diag-config {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
+  font-size:0.625rem;
   word-break: break-all;
   color: var(--text-muted);
 }
@@ -773,49 +864,49 @@ body {
 
 .diag-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-size:0.6875rem;
 }
 
 .diag-err {
-  max-width: 260px;
+  max-width:16.25rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size:0.6875rem;
 }
 
 .diag-muted {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size:0.75rem;
 }
 
 .diag-error {
   color: var(--critical);
-  font-size: 12px;
+  font-size:0.75rem;
 }
 
 /* ── footer hint ───────────────────────────────────────────────────────── */
 
 .hint {
   text-align: right;
-  font-size: 10px;
+  font-size:0.625rem;
   color: var(--text-muted);
   opacity: 0.65;
 }
 
 kbd {
   font-family: inherit;
-  font-size: 10px;
-  padding: 0 3px;
+  font-size:0.625rem;
+  padding:0 0.1875rem;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius:0.1875rem;
 }
 
 /* ── wider screens: give today's totals their own panel ────────────────── */
 
 @media (min-width: 1500px) {
   .grid {
-    grid-template-rows: minmax(0, 340px) auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 21.25rem) auto minmax(0, 1fr);
   }
 }
 
@@ -825,8 +916,13 @@ kbd {
   .app {
     height: auto;
     min-height: 100%;
+    padding: 0.5rem 0.625rem 0.75rem;
   }
 
+  /*
+   * Phone order: the numbers you actually check from the sofa come first, and the chart — the one
+   * thing that genuinely wants width — goes last where scrolling to it is no hardship.
+   */
   .grid {
     grid-template-columns: 1fr;
     grid-template-rows: auto;
@@ -837,26 +933,91 @@ kbd {
       'chart';
   }
 
+  /* The diagram switches to its portrait layout on its own; give it room to be tall. */
+  .panel-flow {
+    min-height: 28rem;
+    padding: 0.5rem 0.25rem;
+  }
+
+  .flow {
+    max-height: 34rem;
+  }
+
+  .tiles {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+
   .panel-totals {
     flex-wrap: wrap;
+    align-items: flex-start;
   }
 
   .panel-totals .totals {
     flex-wrap: wrap;
     justify-content: flex-start;
-    gap: 14px 24px;
+    gap: 0.75rem 1.5rem;
   }
 
-  .flow {
-    max-height: 340px;
+  .panel-totals .totals > * {
+    flex: 1 1 30%;
+  }
+
+  .chart-head {
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
   .legend {
     margin-left: 0;
     width: 100%;
+    order: 3;
   }
 
-  .chart-head {
-    flex-wrap: wrap;
+  .chart {
+    position: static;
+    height: 18rem;
+  }
+
+  .chart-wrap {
+    height: 18rem;
+  }
+
+  .chart-table-wrap {
+    max-height: 20rem;
+  }
+
+  /* Comfortable touch targets — 12px text in a 6px box is a desktop affordance. */
+  .bar-btn,
+  .diag-close {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+    padding: 0.5rem 0.875rem;
+    font-size: 0.875rem;
+  }
+
+  .bar-right {
+    gap: 0.75rem;
+  }
+
+  /* Keyboard hints are meaningless on a phone. */
+  .hint {
+    display: none;
+  }
+}
+
+/* Portrait tablets: two columns, with the chart across the bottom. */
+@media (min-width: 861px) and (max-width: 1100px) and (orientation: portrait) {
+  .grid {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto auto;
+    grid-template-areas:
+      'flow side'
+      'totals totals'
+      'chart chart';
+  }
+
+  .panel-flow {
+    min-height: 22rem;
   }
 }

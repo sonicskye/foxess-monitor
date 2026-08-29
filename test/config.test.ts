@@ -36,7 +36,7 @@ describe('defaults', () => {
     const cfg = loadConfig(BASE);
     const p = projectDailyCalls(cfg.poll, cfg.dailyCallBudget);
 
-    assert.equal(p.total, 1272);
+    assert.equal(p.total, 1276);
     assert.ok(p.withinBudget);
     assert.ok(p.total < 1440, 'must fit the true FoxESS ceiling, not just our own cap');
     assert.ok(1440 - p.total >= 100, 'needs headroom for restarts, retries and discovery');
@@ -46,26 +46,37 @@ describe('defaults', () => {
 describe('budget pre-flight', () => {
   test('counts generation and report separately — they share one interval but are two calls', () => {
     const p = projectDailyCalls(
-      { realSeconds: 90, totalsSeconds: 600, quotaSeconds: 3600, idleSlowdownSeconds: 900, idlePollSeconds: 300 },
+      { realSeconds: 90, totalsSeconds: 600, quotaSeconds: 3600, settingsSeconds: 21_600, idleSlowdownSeconds: 900, idlePollSeconds: 300 },
       1400,
     );
     const totals = p.jobs.filter((j) => j.intervalSeconds === 600);
     assert.equal(totals.length, 2);
-    assert.equal(p.total, 960 + 144 + 144 + 24);
+    assert.equal(p.total, 960 + 144 + 144 + 24 + 4);
+  });
+
+  test('counts the battery settings job even though the poller may skip it', () => {
+    // The poller skips it on a battery-less inverter, but the validator must never promise a
+    // smaller number than the schedule could actually spend.
+    const cfg = loadConfig(BASE);
+    const settings = projectDailyCalls(cfg.poll, cfg.dailyCallBudget).jobs.find(
+      (j) => j.name === 'battery/soc/get',
+    );
+    assert.ok(settings, 'the settings job must appear in the projection');
+    assert.equal(settings.callsPerDay, 4, 'six-hourly');
   });
 
   test('refuses a schedule that would exhaust the day', () => {
     // 30s polling = 2880 real calls/day, double the entire FoxESS allowance.
     const problems = expectProblems({ ...BASE, POLL_REAL_SECONDS: '30' });
     assert.equal(problems.length, 1);
-    assert.match(problems[0]!, /would make 3192 API calls\/day/);
+    assert.match(problems[0]!, /would make 3196 API calls\/day/);
     assert.match(problems[0]!, /DAILY_CALL_BUDGET of 1400/);
     assert.match(problems[0]!, /Fix: raise POLL_REAL_SECONDS/);
   });
 
   test('60s real polling is rejected: it consumes the whole allowance alone', () => {
     const problems = expectProblems({ ...BASE, POLL_REAL_SECONDS: '60' });
-    assert.match(problems[0]!, /would make 1752 API calls\/day/);
+    assert.match(problems[0]!, /would make 1756 API calls\/day/);
   });
 
   test('60s real polling cannot fit, however far everything else is dialled back', () => {
@@ -77,19 +88,20 @@ describe('budget pre-flight', () => {
         realSeconds: 60,
         totalsSeconds: 86_400,
         quotaSeconds: 86_400,
+        settingsSeconds: 86_400,
         idleSlowdownSeconds: 900,
         idlePollSeconds: 300,
       },
       1440,
     );
-    assert.equal(p.total, 1443);
+    assert.equal(p.total, 1444);
     assert.ok(!p.withinBudget, '1440 real calls leaves no room for anything else at all');
   });
 
   test('75s is the fastest live poll that still fits alongside the totals jobs', () => {
     const withTotals = (realSeconds: number) =>
       projectDailyCalls(
-        { realSeconds, totalsSeconds: 600, quotaSeconds: 3600, idleSlowdownSeconds: 900, idlePollSeconds: 300 },
+        { realSeconds, totalsSeconds: 600, quotaSeconds: 3600, settingsSeconds: 21_600, idleSlowdownSeconds: 900, idlePollSeconds: 300 },
         1440,
       ).total;
 
@@ -99,11 +111,12 @@ describe('budget pre-flight', () => {
 
   test('the projection table names the offending job', () => {
     const p = projectDailyCalls(
-      { realSeconds: 30, totalsSeconds: 600, quotaSeconds: 3600, idleSlowdownSeconds: 900, idlePollSeconds: 300 },
+      { realSeconds: 30, totalsSeconds: 600, quotaSeconds: 3600, settingsSeconds: 21_600, idleSlowdownSeconds: 900, idlePollSeconds: 300 },
       1400,
     );
     const table = formatProjection(p);
     assert.match(table, /device\/real\/query\s+every\s+30s -> \s*2880\/day/);
+    assert.match(table, /battery\/soc\/get/);
     assert.match(table, /TOTAL/);
     assert.match(table, /228% of cap 1400/);
   });

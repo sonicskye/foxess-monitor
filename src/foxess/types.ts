@@ -59,7 +59,16 @@ export interface DeviceDetail {
   hasBattery?: boolean;
   hasPV?: boolean;
   status?: number;
-  batteryList?: { batterySN?: string; model?: string; version?: string }[];
+  /** Inverter rated power in **kW** — NOT battery energy. See docs/API-NOTES.md. */
+  capacity?: number;
+  batteryList?: {
+    batterySN?: string;
+    type?: string;
+    model?: string;
+    version?: string;
+    /** sic — the API misspells "capacity". Units undocumented; see `parseNameplateCapacityKwh`. */
+    capicty?: string | number;
+  }[];
 }
 
 /** `/op/v0/device/generation` — kWh. */

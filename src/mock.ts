@@ -196,7 +196,21 @@ export function createMockEndpoints(opts: { timeZone: string; now?: () => number
     },
 
     async deviceDetail(sn: string) {
-      return { ...DEVICE, deviceSN: sn, batteryList: [{ batterySN: 'MOCKBAT01', model: 'HV2600' }] };
+      return {
+        ...DEVICE,
+        deviceSN: sn,
+        capacity: 5, // inverter rated power in kW, NOT pack energy
+        // `capicty` is the API's own misspelling; a string, as the API sends it.
+        batteryList: [
+          { batterySN: 'MOCKBAT01', type: 'master', model: 'HV2600', version: '1.0', capicty: '5.2' },
+          { batterySN: 'MOCKBAT02', type: 'slave', model: 'HV2600', version: '1.0', capicty: '5.2' },
+        ],
+      };
+    },
+
+    async batterySoc() {
+      // A typical setup: hold 20% back while grid-connected, allow down to 10% off-grid.
+      return { minSoc: 10, minSocOnGrid: 20 };
     },
 
     async realQuery(sns: string[]) {

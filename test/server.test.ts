@@ -105,6 +105,21 @@ describe('/api/snapshot', () => {
     assert.equal(s.stale, false);
   });
 
+  test('carries stored / usable / reserved battery energy', async () => {
+    const { json } = await get('/api/snapshot');
+    const b = json.battery;
+
+    // The mock reserves 20% on-grid of a 10.4 kWh pack.
+    assert.equal(b.floorPercent, 20);
+    assert.ok(b.capacityKwh > 9 && b.capacityKwh < 12, `capacity ${b.capacityKwh}`);
+    assert.ok(b.reservedKwh > 0);
+    assert.ok(
+      b.usableKwh < b.storedKwh,
+      'usable must be less than stored — that is the whole point of the reserve',
+    );
+    assert.equal(b.usableKwh.toFixed(2), (b.storedKwh - b.reservedKwh).toFixed(2));
+  });
+
   test('never exposes the API key', async () => {
     const { text } = await get('/api/snapshot');
     assert.ok(!/apiKey|FOXESS_API_KEY|token/i.test(text), 'no credential-shaped field may be served');
@@ -154,7 +169,7 @@ describe('/api/diagnostics', () => {
     assert.equal(json.budget.cap, config.dailyCallBudget);
     assert.ok('real' in json.jobs, 'the live poll job must be listed');
     assert.ok('totals' in json.jobs);
-    assert.equal(json.projection.total, 1272);
+    assert.equal(json.projection.total, 1276);
     assert.ok(Array.isArray(json.recentCalls));
   });
 
@@ -256,7 +271,7 @@ describe('poller', () => {
   test('job health is tracked for the schedule', () => {
     const { jobs } = poller.state();
 
-    for (const name of ['discover', 'backfill', 'real', 'totals', 'generation', 'quota']) {
+    for (const name of ['discover', 'backfill', 'real', 'totals', 'generation', 'quota', 'settings']) {
       assert.ok(jobs[name], `missing job ${name}`);
       assert.equal(jobs[name]!.lastError, null, `${name} failed: ${jobs[name]!.lastError}`);
       assert.ok(jobs[name]!.runs > 0);

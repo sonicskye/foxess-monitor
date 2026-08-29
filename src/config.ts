@@ -14,6 +14,8 @@ export interface PollConfig {
   realSeconds: number;
   totalsSeconds: number;
   quotaSeconds: number;
+  /** Battery min-SOC settings. They change only when the owner changes them, so this is slow. */
+  settingsSeconds: number;
   idleSlowdownSeconds: number;
   idlePollSeconds: number;
 }
@@ -125,6 +127,9 @@ export function projectDailyCalls(poll: PollConfig, cap: number): BudgetProjecti
     { name: 'device/generation', intervalSeconds: poll.totalsSeconds, callsPerDay: perDay(poll.totalsSeconds) },
     { name: 'device/report/query', intervalSeconds: poll.totalsSeconds, callsPerDay: perDay(poll.totalsSeconds) },
     { name: 'user/getAccessCount', intervalSeconds: poll.quotaSeconds, callsPerDay: perDay(poll.quotaSeconds) },
+    // Counted even though the poller skips it on a battery-less inverter: the validator must never
+    // promise a smaller number than the schedule can actually spend.
+    { name: 'battery/soc/get', intervalSeconds: poll.settingsSeconds, callsPerDay: perDay(poll.settingsSeconds) },
   ];
 
   const total = jobs.reduce((sum, j) => sum + j.callsPerDay, 0);
@@ -181,6 +186,7 @@ export function loadConfig(env: Env = process.env): Config {
     realSeconds: readInt(env, 'POLL_REAL_SECONDS', 90, { min: 30, max: 3600 }, problems),
     totalsSeconds: readInt(env, 'POLL_TOTALS_SECONDS', 600, { min: 60, max: 86_400 }, problems),
     quotaSeconds: readInt(env, 'POLL_QUOTA_SECONDS', 3600, { min: 300, max: 86_400 }, problems),
+    settingsSeconds: readInt(env, 'POLL_SETTINGS_SECONDS', 21_600, { min: 300, max: 86_400 }, problems),
     idleSlowdownSeconds: readInt(env, 'IDLE_SLOWDOWN_SECONDS', 900, { min: 0, max: 86_400 }, problems),
     idlePollSeconds: readInt(env, 'IDLE_POLL_SECONDS', 300, { min: 30, max: 86_400 }, problems),
   };

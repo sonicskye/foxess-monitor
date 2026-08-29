@@ -23,11 +23,15 @@ import { useSize } from '../useSize.ts';
 
 /** Fraction of the plot height given to the diverging grid strip. */
 const GRID_SHARE = 0.31;
-const PAD_L = 40;
-const PAD_R = 52; // room for the import/export pole labels
-const PAD_T = 12;
-const PAD_B = 8;
-const AXIS_BAND = 20; // x-axis labels live below the grid strip
+
+/*
+ * Padding is expressed in multiples of the root font size, not fixed pixels.
+ *
+ * This chart draws 1:1 with CSS pixels (see useSize), so its tick and axis labels are styled in rem
+ * and grow with the fluid root size. Fixed padding would then be outgrown by its own labels — on a
+ * 4K display the axis figures and the import/export captions were clipped.
+ */
+const PAD = { l: 2.8, r: 3.6, t: 0.85, b: 0.55, axis: 1.4 } as const;
 
 interface SeriesSpec {
   key: 'solarKw' | 'loadKw' | 'batteryKw';
@@ -147,6 +151,14 @@ export function IntradayChart({
   const H_GRID = Math.round(H * GRID_SHARE);
   const H_MAIN = H - H_GRID;
 
+  // Padding tracks the root font size, so labels never outgrow the space reserved for them.
+  const unit = size.rootFontSize;
+  const PAD_L = PAD.l * unit;
+  const PAD_R = PAD.r * unit;
+  const PAD_T = PAD.t * unit;
+  const PAD_B = PAD.b * unit;
+  const AXIS_BAND = PAD.axis * unit;
+
   const plotW = W - PAD_L - PAD_R;
   const x = (i: number): number => PAD_L + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW);
 
@@ -200,7 +212,7 @@ export function IntradayChart({
               y1={yPower(value)}
               y2={yPower(value)}
             />
-            <text class="chart-tick" x={PAD_L - 6} y={yPower(value) + 3} text-anchor="end">
+            <text class="chart-tick" x={PAD_L - 0.4 * unit} y={yPower(value) + 3} text-anchor="end">
               {value}
             </text>
           </g>
@@ -219,10 +231,10 @@ export function IntradayChart({
           <line class="chart-grid" x1={PAD_L} x2={W - PAD_R} y1={yGrid(scales.maxGrid)} y2={yGrid(scales.maxGrid)} />
           <line class="chart-grid" x1={PAD_L} x2={W - PAD_R} y1={yGrid(-scales.maxGrid)} y2={yGrid(-scales.maxGrid)} />
 
-          <text class="chart-tick" x={PAD_L - 6} y={yGrid(scales.maxGrid) + 9} text-anchor="end">
+          <text class="chart-tick" x={PAD_L - 0.4 * unit} y={yGrid(scales.maxGrid) + 9} text-anchor="end">
             {scales.maxGrid}
           </text>
-          <text class="chart-tick" x={PAD_L - 6} y={yGrid(-scales.maxGrid) - 1} text-anchor="end">
+          <text class="chart-tick" x={PAD_L - 0.4 * unit} y={yGrid(-scales.maxGrid) - 1} text-anchor="end">
             {scales.maxGrid}
           </text>
 
@@ -247,10 +259,10 @@ export function IntradayChart({
           <line class="chart-axis" x1={PAD_L} x2={W - PAD_R} y1={gridZero} y2={gridZero} />
 
           {/* Words, so import/export never rests on hue alone. */}
-          <text class="chart-pole" x={W - PAD_R + 6} y={yGrid(scales.maxGrid / 2) + 3}>
+          <text class="chart-pole" x={W - PAD_R + 0.4 * unit} y={yGrid(scales.maxGrid / 2) + 3}>
             import
           </text>
-          <text class="chart-pole" x={W - PAD_R + 6} y={yGrid(-scales.maxGrid / 2) + 3}>
+          <text class="chart-pole" x={W - PAD_R + 0.4 * unit} y={yGrid(-scales.maxGrid / 2) + 3}>
             export
           </text>
 
@@ -259,7 +271,7 @@ export function IntradayChart({
               key={`t-${tick.i}`}
               class="chart-tick"
               x={x(tick.i)}
-              y={H_GRID - 5}
+              y={H_GRID - 0.35 * unit}
               text-anchor="middle"
             >
               {tick.label}

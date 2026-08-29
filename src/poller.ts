@@ -18,10 +18,14 @@ import { BudgetDeniedError } from './foxess/types.ts';
 import { createTransitionLogger, type Logger } from './log.ts';
 import { startOfLocalDay } from './localdate.ts';
 import {
+  batteryEnergy,
+  deriveCapacityKwh,
   normalizeDayTotals,
   normalizeHistory,
   normalizeSnapshot,
+  parseNameplateCapacityKwh,
   toSample,
+  type BatteryEnergy,
   type DayTotals,
   type Snapshot,
 } from './normalize.ts';
@@ -55,6 +59,8 @@ export interface PollerState {
   snapshots: Record<string, Snapshot>;
   totals: DayTotals | null;
   generation: GenerationTotals | null;
+  /** Stored vs usable vs reserved for the primary device. */
+  battery: BatteryEnergy;
   jobs: Record<string, JobHealth>;
   /** True while no browser has been connected for longer than IDLE_SLOWDOWN_SECONDS. */
   idle: boolean;
@@ -90,6 +96,15 @@ export function createPoller(opts: PollerOptions): Poller {
   const snapshots: Record<string, Snapshot> = {};
   let totals: DayTotals | null = null;
   let generation: GenerationTotals | null = null;
+  /** Min-SOC floors, from the slow settings poll. */
+  let minSoc: number | null = null;
+  let minSocOnGrid: number | null = null;
+  /**
+   * Best pack-size estimate, kWh. Seeded from the device-detail nameplate, then superseded by a
+   * telemetry-derived figure and smoothed, since SOC arrives as an integer percent.
+   */
+  let capacityKwh: number | null = null;
+  let capacityFromTelemetry = false;
   let idle = false;
   let lastViewerAt = now();
   const startedAt = new Date(now()).toISOString();
@@ -207,6 +222,23 @@ export function createPoller(opts: PollerOptions): Poller {
     }
 
     devices = found;
+
+    // The nameplate seeds the capacity estimate so the first render has something, before SOC has
+    // been high enough for the telemetry-derived figure.
+    try {
+      const detail = await api.deviceDetail(found[0]!.sn);
+      const nameplate = parseNameplateCapacityKwh(detail.batteryList);
+      if (nameplate !== null && !capacityFromTelemetry) {
+        capacityKwh = nameplate;
+        log.info('battery capacity from nameplate', { capacityKwh: nameplate });
+      }
+      const station = detail.stationName ?? found[0]!.stationName;
+      if (station) devices = devices.map((d, i) => (i === 0 ? { ...d, stationName: station } : d));
+    } catch (err) {
+      // Non-fatal: the estimate will arrive from telemetry instead.
+      log.debug('could not read device detail', { err });
+    }
+
     log.info('discovered inverters', {
       count: devices.length,
       sns: devices.map((d) => d.sn),
@@ -238,7 +270,50 @@ export function createPoller(opts: PollerOptions): Poller {
     }
 
     const primarySnapshot = snapshots[devices[0]!.sn];
-    if (primarySnapshot) trackStale(primarySnapshot.stale);
+    if (primarySnapshot) {
+      trackStale(primarySnapshot.stale);
+      updateCapacity(primarySnapshot);
+    }
+  }
+
+  /**
+   * Refine the pack-size estimate from a live reading.
+   *
+   * `deriveCapacityKwh` declines below 20% SOC, where integer-percent quantisation makes the
+   * division unreliable — so overnight the previous estimate simply persists. An exponential moving
+   * average damps the remaining jitter; the first telemetry value replaces the nameplate outright
+   * rather than being averaged with it, since the two are not measuring quite the same thing.
+   */
+  function updateCapacity(snapshot: Snapshot): void {
+    const derived = deriveCapacityKwh(snapshot.soc, snapshot.residualKwh);
+    if (derived === null) return;
+
+    if (!capacityFromTelemetry || capacityKwh === null) {
+      capacityKwh = derived;
+      capacityFromTelemetry = true;
+      log.info('battery capacity estimated from telemetry', { capacityKwh: Number(derived.toFixed(2)) });
+      return;
+    }
+    capacityKwh = capacityKwh * 0.8 + derived * 0.2;
+  }
+
+  async function pollSettings(): Promise<void> {
+    const device = devices[0];
+    // A grid-tied inverter has no battery settings; asking every 6 hours forever would just log
+    // an error every 6 hours forever.
+    if (!device || !device.hasBattery) return;
+
+    const result = await api.batterySoc(device.sn);
+    const next = {
+      minSoc: typeof result.minSoc === 'number' ? result.minSoc : null,
+      minSocOnGrid: typeof result.minSocOnGrid === 'number' ? result.minSocOnGrid : null,
+    };
+
+    if (next.minSoc !== minSoc || next.minSocOnGrid !== minSocOnGrid) {
+      log.info('battery minimum SOC', next);
+    }
+    minSoc = next.minSoc;
+    minSocOnGrid = next.minSocOnGrid;
   }
 
   async function pollTotals(): Promise<void> {
@@ -352,6 +427,7 @@ export function createPoller(opts: PollerOptions): Poller {
         pollReal,
       );
 
+      schedule('settings', () => config.poll.settingsSeconds, pollSettings);
       schedule('totals', () => config.poll.totalsSeconds, pollTotals);
       schedule('generation', () => config.poll.totalsSeconds, pollGeneration);
       schedule('quota', () => config.poll.quotaSeconds, async () => {
@@ -369,7 +445,24 @@ export function createPoller(opts: PollerOptions): Poller {
     },
 
     state() {
-      return { devices, snapshots, totals, generation, jobs, idle, startedAt };
+      const primary = devices[0] ? (snapshots[devices[0].sn] ?? null) : null;
+      return {
+        devices,
+        snapshots,
+        totals,
+        generation,
+        battery: batteryEnergy({
+          soc: primary?.soc ?? null,
+          residualKwh: primary?.residualKwh ?? null,
+          capacityKwh,
+          minSoc,
+          minSocOnGrid,
+          runningState: primary?.runningState ?? null,
+        }),
+        jobs,
+        idle,
+        startedAt,
+      };
     },
 
     primary() {
