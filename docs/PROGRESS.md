@@ -56,11 +56,15 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## Step 4 — API client
 
-- [ ] `src/foxess/types.ts` — response shapes
-- [ ] `src/foxess/client.ts` — signed `fetch`, errno mapping, retry, audit hook
-- [ ] `src/foxess/endpoints.ts` — the 7 read-only calls
-- [ ] `src/probe.ts` — `npm run probe`, exactly 3 real calls
-      verified: run `npm run probe` against the real account
+- [x] `src/foxess/types.ts` — response shapes, `FoxApiError` / `BudgetDeniedError`, errno meanings
+- [x] `src/foxess/client.ts` — signed `fetch`, envelope unwrapping, rationed retries, audit hook
+- [x] `src/foxess/endpoints.ts` — the 7 read-only calls; the only file that names FoxESS paths
+- [x] `src/probe.ts` — `npm run probe`, exactly 3 real calls
+- [x] `test/client.test.ts`
+      files: src/foxess/{types,client,endpoints}.ts, src/probe.ts, test/client.test.ts
+      verified: `npm test` 109/109 · typecheck clean · config-refusal paths smoke-tested
+- [ ] **Needs the owner:** run `npm run probe` against the real account to confirm the signature
+      works end to end. Everything else in this step is verified offline against a stubbed fetch.
 
 ## Step 5 — Domain model & storage
 
@@ -99,21 +103,20 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## Resume here
 
-**Current step:** 4 — API client.
+**Current step:** 5 — Domain model & storage.
 
-**State:** Steps 0–3 complete. Scaffold, docs, logger, audit trail, signing, config validation and
-budget enforcement are all in place (84 tests green, typecheck clean). Nothing has yet made a real
-API call.
+**State:** Steps 0–4 complete (109 tests green, typecheck clean). The API client is written and
+fully tested against a stubbed fetch, but **has never spoken to the real API**.
 
 **Next command:**
 
 ```sh
-npm test && npm run typecheck    # confirm green, then write src/foxess/client.ts
+npm run probe    # 3 real calls — needs FOXESS_API_KEY in .env
 ```
 
-**Open questions for the owner:** `FOXESS_API_KEY` is needed to finish Step 4 — `npm run probe`
-spends exactly 3 calls to confirm the credentials and the signature work against the live API.
-Everything up to that point is testable offline.
+**Open questions for the owner:** `.env` needs a real `FOXESS_API_KEY` before `npm run probe` can
+confirm the signature works end to end. Steps 5–7 can all proceed without it, using
+`FOXESS_MOCK=1`.
 
 **Watch out for:**
 
