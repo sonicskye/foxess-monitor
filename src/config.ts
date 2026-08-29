@@ -32,6 +32,12 @@ export interface Config {
   retainDays: number;
   logLevel: Level;
   mock: boolean;
+  /**
+   * Hours to shift the simulated clock in mock mode. Lets UI work target a specific time of day —
+   * midday export, evening discharge, a low overnight SOC — instead of whatever hour it happens to
+   * be. Ignored unless `mock` is set.
+   */
+  mockOffsetHours: number;
 }
 
 export class ConfigError extends Error {
@@ -194,6 +200,7 @@ export function loadConfig(env: Env = process.env): Config {
     retainDays: readInt(env, 'RETAIN_DAYS', 14, { min: 1, max: 3650 }, problems),
     logLevel: readLevel(env, 'LOG_LEVEL', problems),
     mock,
+    mockOffsetHours: readInt(env, 'MOCK_OFFSET_HOURS', 0, { min: -48, max: 48 }, problems),
   };
 
   // Only meaningful once the intervals themselves are valid.

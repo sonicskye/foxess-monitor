@@ -83,11 +83,24 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## Step 6 — Poller & server
 
-- [ ] `src/mock.ts` — synthetic 24 h day, zero API calls
-- [ ] `src/poller.ts` — schedule, idle slowdown, startup backfill, SSE broadcast
-- [ ] `src/server.ts` — `node:http`; `/api/snapshot`, `/api/series`, `/api/stream`,
-      `/api/diagnostics`, `/healthz`, static
-      verified: `FOXESS_MOCK=1 npm run dev` serves a snapshot and pushes SSE
+- [x] `src/mock.ts` — synthetic day (solar bell curve, morning/evening load peaks, battery that
+      charges on surplus and holds a 10% reserve), zero API calls
+- [x] `src/poller.ts` — per-job schedules, idle slowdown, startup backfill, SSE broadcast,
+      per-job health tracking; a failing job costs one poll, never the schedule
+- [x] `src/server.ts` — `node:http`; `/api/snapshot`, `/api/series`, `/api/stream`,
+      `/api/diagnostics`, `/healthz`, static with traversal guard
+- [x] `test/server.test.ts` — routes, SSE, read-only enforcement, traversal, key leakage
+      files: src/mock.ts, src/poller.ts, src/server.ts, test/server.test.ts
+      verified: `npm test` 191/191 · typecheck clean · ran live in mock mode and exercised every
+      route with curl
+
+> **Bug found and fixed while verifying:** `downsample()` judged gaps on the spacing of its *output*
+> points. Reducing a full day to a few hundred points makes consecutive points tens of minutes
+> apart, so every interval tripped the 10-minute outage threshold and the chart came back as a
+> dotted line of nulls. Gaps are now judged on the source sample times. Two regression tests pin it.
+
+> **New knob:** `MOCK_OFFSET_HOURS` shifts the simulated clock so UI work can target midday export
+> or evening discharge instead of whatever hour it happens to be. Mock mode only.
 
 ## Step 7 — Frontend
 
@@ -111,20 +124,22 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## Resume here
 
-**Current step:** 6 — Poller & server.
+**Current step:** 7 — Frontend.
 
-**State:** Steps 0–5 complete (166 tests green, typecheck clean). The API client is written and
-fully tested against a stubbed fetch, but **has never spoken to the real API**.
+**State:** Steps 0–6 complete (191 tests green, typecheck clean). The whole backend runs: start it
+in mock mode and every route answers. The API client has still **never spoken to the real API**.
 
 **Next command:**
 
 ```sh
-npm run probe    # 3 real calls — needs FOXESS_API_KEY in .env
+# backend on synthetic data, clock shifted to mid-afternoon so there is something to look at
+FOXESS_MOCK=1 MOCK_OFFSET_HOURS=9 npm run dev
 ```
 
+Then build `web/` against it. `npm run dev:web` runs the Vite dev server.
+
 **Open questions for the owner:** `.env` needs a real `FOXESS_API_KEY` before `npm run probe` can
-confirm the signature works end to end. Steps 5–7 can all proceed without it, using
-`FOXESS_MOCK=1`.
+confirm the signature works end to end. Step 7 does not need it.
 
 **Watch out for:**
 

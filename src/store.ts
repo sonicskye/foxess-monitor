@@ -180,19 +180,31 @@ export function downsample(samples: Sample[], maxPoints = 240): Series {
   const span = Math.max(1, last - first);
   const bucketMs = span / maxPoints;
 
-  const buckets: { sum: Record<string, number>; count: Record<string, number>; tSum: number; n: number }[] =
-    Array.from({ length: maxPoints + 1 }, () => ({
-      sum: { solarKw: 0, loadKw: 0, gridKw: 0, batteryKw: 0, soc: 0 },
-      count: { solarKw: 0, loadKw: 0, gridKw: 0, batteryKw: 0, soc: 0 },
-      tSum: 0,
-      n: 0,
-    }));
+  const buckets: {
+    sum: Record<string, number>;
+    count: Record<string, number>;
+    tSum: number;
+    n: number;
+    /** First and last SOURCE sample times in this bucket — gaps are judged on these, never on
+     *  bucket spacing, which is a function of maxPoints rather than of the data. */
+    tMin: number;
+    tMax: number;
+  }[] = Array.from({ length: maxPoints + 1 }, () => ({
+    sum: { solarKw: 0, loadKw: 0, gridKw: 0, batteryKw: 0, soc: 0 },
+    count: { solarKw: 0, loadKw: 0, gridKw: 0, batteryKw: 0, soc: 0 },
+    tSum: 0,
+    n: 0,
+    tMin: Infinity,
+    tMax: -Infinity,
+  }));
 
   for (const sample of sorted) {
     const index = Math.min(buckets.length - 1, Math.floor((sample.t - first) / bucketMs));
     const bucket = buckets[index]!;
     bucket.tSum += sample.t;
     bucket.n += 1;
+    bucket.tMin = Math.min(bucket.tMin, sample.t);
+    bucket.tMax = Math.max(bucket.tMax, sample.t);
     for (const key of CHANNELS) {
       const value = sample[key];
       if (typeof value === 'number' && Number.isFinite(value)) {
@@ -203,20 +215,21 @@ export function downsample(samples: Sample[], maxPoints = 240): Series {
   }
 
   const series: Series = { t: [], solarKw: [], loadKw: [], gridKw: [], batteryKw: [], soc: [] };
-  let previousT: number | null = null;
+  let previousMax: number | null = null;
 
-  for (let i = 0; i < buckets.length; i++) {
-    const bucket = buckets[i]!;
-    if (bucket.n === 0) continue; // an empty bucket is a gap, handled below
+  for (const bucket of buckets) {
+    if (bucket.n === 0) continue; // an empty bucket is only a gap if the SOURCE had one
 
-    const t = Math.round(bucket.tSum / bucket.n);
-    if (previousT !== null && t - previousT > GAP_THRESHOLD_MS) {
-      series.t.push(previousT + Math.round((t - previousT) / 2));
+    // Compare the real distance between the last sample before this bucket and the first one in
+    // it. Using bucket midpoints here would flag every interval as an outage as soon as the
+    // requested resolution was coarser than 10 minutes.
+    if (previousMax !== null && bucket.tMin - previousMax > GAP_THRESHOLD_MS) {
+      series.t.push(previousMax + Math.round((bucket.tMin - previousMax) / 2));
       for (const key of CHANNELS) series[key].push(null);
     }
-    previousT = t;
+    previousMax = bucket.tMax;
 
-    series.t.push(t);
+    series.t.push(Math.round(bucket.tSum / bucket.n));
     for (const key of CHANNELS) {
       series[key].push(bucket.count[key]! === 0 ? null : bucket.sum[key]! / bucket.count[key]!);
     }

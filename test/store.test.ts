@@ -211,6 +211,27 @@ describe('downsample', () => {
     const series = downsample([...many, ...afterGap], 100);
 
     assert.ok(series.soc.includes(null), 'downsampled output must still show the outage');
+    assert.equal(series.soc.filter((v) => v === null).length, 1, 'exactly one break, for the one outage');
+  });
+
+  test('does not invent gaps when buckets are wider than the gap threshold', () => {
+    // Regression: gaps were judged on the spacing of the OUTPUT points. Downsampling a continuous
+    // day to a few hundred points makes consecutive points tens of minutes apart, so every single
+    // interval was flagged as an outage and the chart came back as a dotted line of nulls.
+    // The source data here is unbroken at 5-minute resolution.
+    const samples = Array.from({ length: 288 }, (_, i) => sample(base + i * 5 * 60_000));
+    const series = downsample(samples, 20);
+
+    const bucketSpacing = series.t[1]! - series.t[0]!;
+    assert.ok(bucketSpacing > GAP_THRESHOLD_MS, 'this test is only meaningful with coarse buckets');
+    assert.ok(!series.soc.includes(null), 'continuous data must produce a continuous line');
+    assert.equal(series.t.length, series.soc.length);
+  });
+
+  test('honours maxPoints rather than doubling it with breaks', () => {
+    const samples = Array.from({ length: 960 }, (_, i) => sample(base + i * 90_000));
+    const series = downsample(samples, 50);
+    assert.ok(series.t.length <= 51, `expected at most ~50 points, got ${series.t.length}`);
   });
 
   test('keeps null channels null instead of averaging them to zero', () => {
