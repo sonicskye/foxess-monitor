@@ -210,8 +210,14 @@ export function App() {
               color="var(--battery)"
               note={batteryWay === 'idle' ? 'resting' : batteryWay}
             />
+            {/*
+              * "Battery temp" is the API's single pack-level `batTemperature`. The FoxESS app shows
+              * a MINIMUM CELL temperature, which the OpenAPI does not expose at all, so the two
+              * legitimately differ. "Inverter ambient" is named for what it is — a sensor inside a
+              * warm enclosure, not room temperature.
+              */}
             <StatTile label="Battery temp" value={degrees(snapshot?.batteryTempC)} unit="°C" />
-            <StatTile label="Ambient" value={degrees(snapshot?.ambientTempC)} unit="°C" />
+            <StatTile label="Inverter ambient" value={degrees(snapshot?.ambientTempC)} unit="°C" />
           </div>
         </section>
 

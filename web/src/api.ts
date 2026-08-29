@@ -39,8 +39,13 @@ export interface DayTotals {
 }
 
 /** Stored vs usable vs reserved. See `batteryEnergy()` in src/normalize.ts. */
+export type CapacitySource = 'config' | 'nameplate' | 'derived' | 'unknown';
+
 export interface BatteryEnergy {
   capacityKwh: number | null;
+  capacitySource: CapacitySource;
+  /** What the API's ResidualEnergy said — kept for diagnosis; not necessarily what is displayed. */
+  reportedResidualKwh: number | null;
   storedKwh: number | null;
   /** Minimum SOC in force right now — minSocOnGrid on-grid, minSoc off-grid. */
   floorPercent: number | null;

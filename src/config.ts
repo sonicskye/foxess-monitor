@@ -34,6 +34,14 @@ export interface Config {
   dataDir: string;
   retainDays: number;
   logLevel: Level;
+  /**
+   * Battery pack size in kWh, from the installer's invoice or the FoxESS app.
+   *
+   * Optional, but authoritative when set — the API's `ResidualEnergy` cannot be trusted on every
+   * pack (see docs/DECISIONS.md), so a known capacity plus SOC is a better source of stored energy.
+   * Null means fall back to the nameplate, then to telemetry.
+   */
+  batteryCapacityKwh: number | null;
   mock: boolean;
   /**
    * Hours to shift the simulated clock in mock mode. Lets UI work target a specific time of day —
@@ -76,6 +84,28 @@ function readInt(
   if (bounds.max !== undefined && value > bounds.max) {
     problems.push(`${name} must be <= ${bounds.max} (got ${value})`);
     return fallback;
+  }
+  return value;
+}
+
+/** Optional positive decimal, e.g. a battery capacity in kWh. Null when unset. */
+function readOptionalFloat(
+  env: Env,
+  name: string,
+  bounds: { min: number; max: number },
+  problems: string[],
+): number | null {
+  const raw = env[name]?.trim();
+  if (!raw) return null;
+
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    problems.push(`${name} must be a number (got ${JSON.stringify(raw)})`);
+    return null;
+  }
+  if (value < bounds.min || value > bounds.max) {
+    problems.push(`${name} must be between ${bounds.min} and ${bounds.max} (got ${value})`);
+    return null;
   }
   return value;
 }
@@ -206,6 +236,8 @@ export function loadConfig(env: Env = process.env): Config {
     dataDir: env['DATA_DIR']?.trim() || './data',
     retainDays: readInt(env, 'RETAIN_DAYS', 14, { min: 1, max: 3650 }, problems),
     logLevel: readLevel(env, 'LOG_LEVEL', problems),
+    // 0.5-200 kWh spans anything from a single module to a large domestic bank.
+    batteryCapacityKwh: readOptionalFloat(env, 'BATTERY_CAPACITY_KWH', { min: 0.5, max: 200 }, problems),
     mock,
     mockOffsetHours: readInt(env, 'MOCK_OFFSET_HOURS', 0, { min: -48, max: 48 }, problems),
   };

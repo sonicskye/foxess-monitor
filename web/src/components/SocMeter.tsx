@@ -16,7 +16,7 @@
  */
 
 import type { BatteryEnergy, Snapshot } from '../api.ts';
-import { kwh, percent, socLevel } from '../format.ts';
+import { capacityKwh, kwh, percent, socLevel } from '../format.ts';
 
 const LEVEL_COLOR = {
   normal: 'var(--battery)',
@@ -78,7 +78,16 @@ export function SocMeter({
             <span aria-hidden="true">{badge.icon}</span> {badge.text}
           </span>
         ) : (
-          snapshot?.soh != null && <span class="soc-health">{percent(snapshot.soh)}% health</span>
+          /*
+           * Capacity as the frame of reference for the rows below — without it there is no way to
+           * tell whether "stored" is most of the pack or a fraction of it. A low-battery badge
+           * takes priority over this line.
+           */
+          <span class="soc-health">
+            {battery?.capacityKwh != null && <>{capacityKwh(battery.capacityKwh)} kWh</>}
+            {battery?.capacityKwh != null && snapshot?.soh != null && ' · '}
+            {snapshot?.soh != null && <>{percent(snapshot.soh)}%</>}
+          </span>
         )}
       </div>
 

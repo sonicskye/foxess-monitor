@@ -254,11 +254,38 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 > harmful — forcing HTTPS on a plain-HTTP LAN origin locks out every device that visited once. A
 > test asserts it stays absent.
 
+## Step 13 — `ResidualEnergy` is not remaining energy
+
+- [x] `BATTERY_CAPACITY_KWH` in `.env`; capacity precedence config → nameplate → telemetry
+- [x] `batteryEnergy()` computes stored as `capacity × SoC` when the capacity is trusted
+- [x] `reportedResidualKwh` + `capacitySource` on the snapshot; `residualDisagrees()` drives a
+      transition-logged warning and a `/api/diagnostics` battery block
+- [x] Capacity shown beside the battery header (2 dp, so `27.96` confirms the setting)
+- [x] `npm run probe` gained a battery section (now 4 calls) printing the raw inputs
+- [x] `Ambient` → `Inverter ambient`; documented that the API has no per-cell temperatures
+      files: src/{normalize,config,poller,probe,server}.ts, web/src/**, test/normalize.test.ts,
+      .env.example, docs/**
+      verified: `npm test` 262/262 · typecheck clean · rendered with the real values (27.96 kWh,
+      68%) giving stored **19.0**, usable **16.2**, reserved **2.80** — matching the FoxESS app ·
+      resolution matrix unchanged
+
+> **The bug.** An EQ4800-L6 (27.96 kWh) at 68% SOC: the API said `ResidualEnergy = 26.9 kWh`, the
+> FoxESS app said 19.01 (= 27.96 × 0.68 exactly). Capacity was *derived from* `ResidualEnergy`, so
+> it read 39.56 kWh and usable read 22.9 instead of 16.22.
+>
+> It stayed invisible because **capacity was computed and sent to the browser but never displayed**,
+> and neither `probe` nor diagnostics exposed the raw inputs. Both are fixed.
+
+> **Not a bug: the temperatures.** The app's "min cell temp 12.4 ℃" and the dashboard's
+> "battery temp 19.4 ℃" are different measurements — the OpenAPI exposes no per-cell temperature at
+> all. Relabelled `Ambient` → `Inverter ambient` (it is the inverter's sensor, not room temperature)
+> rather than "fixing" correct data.
+
 ---
 
 ## Done
 
-All twelve steps complete. 218 tests, typecheck clean on both projects, production build verified.
+All thirteen steps complete. 218 tests, typecheck clean on both projects, production build verified.
 
 **The one thing not yet verified: no request has ever been made to the real FoxESS API.**
 Everything is tested against a stubbed fetch and a synthetic day. Run `npm run probe` with a real
@@ -270,7 +297,7 @@ Everything is tested against a stubbed fetch and a synthetic day. Run `npm run p
 
 **Current step:** none — the build is complete.
 
-**State:** All twelve steps done. 253 tests green, typecheck clean, production build verified by
+**State:** All thirteen steps done. 262 tests green, typecheck clean, production build verified by
 running `dist/server.js` and exercising every route.
 
 **Next command:**

@@ -226,7 +226,7 @@ uses). "ES" = available on energy-storage inverters, "GT" = grid-tied.
 | `epsPower` | kW | EPS total output power | ✓ | ✓ |
 | `SoC` | % | Battery state of charge | ✓ | ✗ |
 | `SOH` | % | Battery state of health | ✓ | ✗ |
-| `ResidualEnergy` | kWh | Remaining energy in battery | ✓ | ✗ |
+| `ResidualEnergy` | kWh | Remaining energy — **unreliable, see below** | ✓ | ✗ |
 | `batChargePower` | kW | Battery charge power | ✓ | ✗ |
 | `batDischargePower` | kW | Battery discharge power | ✓ | ✗ |
 | `invBatPower` | kW | Inverter-side battery power | ✓ | ✗ |
@@ -251,6 +251,37 @@ be surfaced as an unknown code rather than mapped to a plausible-looking label.
 Implemented as `runningStateLabel()` in `web/src/format.ts`, which also assigns a severity:
 `165`, `166` and `170` are faults; `164` is a notice (the grid is down and the house is on backup);
 `163` and `167` are normal.
+
+### ⚠️ `ResidualEnergy` is not remaining energy on every pack
+
+Documented as "Remaining energy in battery" in kWh. **Measured against real hardware it can be
+badly wrong.**
+
+On an **EQ4800-L6 (27.96 kWh, one master + six slaves)** at 68% SOC:
+
+| Source | Value |
+|---|---|
+| FoxESS app | **19.01 kWh** ( = 27.96 × 0.68, exactly ) |
+| API `ResidualEnergy` | **26.9 kWh** ( = 96% of the pack, at 68% charge ) |
+
+`SoC` agreed with the app, so `ResidualEnergy` is the variable at fault. The factor is ~1.41, which
+is not a unit conversion, and what it actually represents on that firmware is unknown.
+
+**Therefore:** when the pack capacity is known, compute stored energy as `capacity × SoC / 100` and
+treat `ResidualEnergy` as diagnostic only. `BATTERY_CAPACITY_KWH` sets the capacity;
+`residualDisagrees()` in `src/normalize.ts` flags the mismatch and `npm run probe` prints both.
+
+### No per-cell temperatures
+
+The OpenAPI exposes **no minimum or maximum cell temperature**. The only battery temperature is
+`batTemperature`, a single pack-level figure. The FoxESS app *does* show a min-cell temperature, so
+the two will legitimately differ — on the same system the app showed 12.4 ℃ min cell while
+`batTemperature` reported 19.4 ℃. That is not a bug in either place; they are different
+measurements. Nor is `ambientTemperation` room temperature: it is the inverter's own sensor, inside
+a warm enclosure.
+
+The other temperature variables (`boostTemperation`, `invTemperation`, `chargeTemperature`,
+`dspTemperature`) are all inverter-internal, not battery.
 
 ### Sign conventions — read carefully
 

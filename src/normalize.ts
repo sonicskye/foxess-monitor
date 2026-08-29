@@ -189,11 +189,22 @@ export function toSample(snapshot: Snapshot): Sample {
  * "Remaining" overstates it. The inverter will not discharge below a minimum SOC, so on a 10.4 kWh
  * pack with a 10% floor, roughly 1 kWh of what the API calls remaining energy can never be used.
  */
+/** Where the pack size came from, best first. Surfaced in diagnostics. */
+export type CapacitySource = 'config' | 'nameplate' | 'derived' | 'unknown';
+
 export interface BatteryEnergy {
   /** Usable-plus-reserved pack size, kWh. */
   capacityKwh: number | null;
-  /** Energy in the pack right now, kWh (the API's `ResidualEnergy`). */
+  capacitySource: CapacitySource;
+  /** Energy in the pack right now, kWh. Computed as capacity x soc when capacity is trusted. */
   storedKwh: number | null;
+  /**
+   * What the API's `ResidualEnergy` variable actually said, kept for diagnosis.
+   *
+   * On some packs it disagrees badly with `SoC` — see docs/DECISIONS.md — so it is reported rather
+   * than used whenever a real capacity is known.
+   */
+  reportedResidualKwh: number | null;
   /** The minimum SOC in force right now, %. */
   floorPercent: number | null;
   /** Energy held below the floor, kWh. Real, but not available to the house. */
@@ -206,12 +217,37 @@ export interface BatteryEnergy {
 
 const EMPTY_BATTERY_ENERGY: BatteryEnergy = {
   capacityKwh: null,
+  capacitySource: 'unknown',
   storedKwh: null,
+  reportedResidualKwh: null,
   floorPercent: null,
   reservedKwh: null,
   usableKwh: null,
   usablePercent: null,
 };
+
+/** `ResidualEnergy` is treated as suspect once it differs from capacity x soc by more than this. */
+export const RESIDUAL_MISMATCH_RATIO = 0.1;
+
+/**
+ * Does the API's `ResidualEnergy` agree with what capacity and SOC imply?
+ *
+ * Observed on an EQ4800-L6 (27.96 kWh): at 68% SOC the API reported 26.9 kWh — 96% of the pack —
+ * while the FoxESS app itself showed 19.01 kWh, exactly 27.96 x 0.68. The variable is not remaining
+ * energy on that hardware, so a mismatch is worth surfacing rather than silently displaying.
+ */
+export function residualDisagrees(
+  reported: number | null,
+  capacityKwh: number | null,
+  soc: number | null,
+): boolean {
+  if (reported === null || capacityKwh === null || soc === null) return false;
+  if (!Number.isFinite(reported) || !Number.isFinite(soc) || capacityKwh <= 0) return false;
+
+  const expected = capacityKwh * (soc / 100);
+  if (expected <= 0) return false;
+  return Math.abs(reported - expected) / expected > RESIDUAL_MISMATCH_RATIO;
+}
 
 /** Below this SOC the capacity estimate is too noisy to trust — see `deriveCapacityKwh`. */
 export const CAPACITY_MIN_SOC = 20;
@@ -278,15 +314,36 @@ export function batteryEnergy(input: {
   residualKwh: number | null;
   /** Best available capacity estimate, kWh. */
   capacityKwh: number | null;
+  /** Where that estimate came from. 'config' and 'nameplate' are trusted over `ResidualEnergy`. */
+  capacitySource?: CapacitySource;
   minSoc: number | null;
   minSocOnGrid: number | null;
   runningState: number | null;
 }): BatteryEnergy {
   const { soc, residualKwh, capacityKwh, minSoc, minSocOnGrid, runningState } = input;
+  const capacitySource = input.capacitySource ?? (capacityKwh === null ? 'unknown' : 'derived');
 
-  const stored = Number.isFinite(residualKwh as number) ? residualKwh : null;
+  const reportedResidualKwh = Number.isFinite(residualKwh as number) ? residualKwh : null;
   const capacity =
     capacityKwh !== null && Number.isFinite(capacityKwh) && capacityKwh > 0 ? capacityKwh : null;
+
+  /*
+   * Stored energy: capacity x SOC when the capacity is trustworthy, otherwise the API's own
+   * ResidualEnergy.
+   *
+   * On an EQ4800-L6 the API reported 26.9 kWh at 68% SOC on a 27.96 kWh pack, while the FoxESS app
+   * showed 19.01 — exactly capacity x SOC. When we actually know the pack size, SOC is the reliable
+   * input and ResidualEnergy is not.
+   *
+   * Note this is a no-op for anyone whose ResidualEnergy is sound: with no configured or nameplate
+   * capacity the estimate is the telemetry-derived one, which IS residual / soc, so multiplying it
+   * back by soc returns the original value unchanged.
+   */
+  const trustCapacity = capacity !== null && (capacitySource === 'config' || capacitySource === 'nameplate');
+  const socFraction = soc !== null && Number.isFinite(soc) ? Math.max(0, Math.min(100, soc)) / 100 : null;
+
+  const stored =
+    trustCapacity && socFraction !== null ? capacity * socFraction : reportedResidualKwh;
 
   // Off-grid spends the reserve, so the floor drops to minSoc. Either value alone is used as-is.
   const offGrid = runningState === STATE_OFF_GRID;
@@ -298,7 +355,13 @@ export function batteryEnergy(input: {
 
   if (floor === null) {
     // No floor known: report what we have, but never claim a usable figure we cannot compute.
-    return { ...EMPTY_BATTERY_ENERGY, capacityKwh: capacity, storedKwh: stored };
+    return {
+      ...EMPTY_BATTERY_ENERGY,
+      capacityKwh: round(capacity),
+      capacitySource,
+      storedKwh: round(stored),
+      reportedResidualKwh,
+    };
   }
 
   const usablePercent = soc === null || !Number.isFinite(soc) ? null : Math.max(0, soc - floor);
@@ -333,7 +396,9 @@ export function batteryEnergy(input: {
 
   return {
     capacityKwh: round(capacity),
-    storedKwh: stored,
+    capacitySource,
+    storedKwh: round(stored),
+    reportedResidualKwh,
     floorPercent: floor,
     reservedKwh: round(reserved),
     usableKwh: round(usableKwh),

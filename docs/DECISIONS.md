@@ -288,3 +288,36 @@ persistent denial of service. Two rules follow:
 **Limits are sized for a household**: 32 concurrent SSE streams against a realistic four, and
 `server.maxConnections = 256`. `requestTimeout` is disabled deliberately — SSE streams never
 "finish", and a timeout there would sever live updates.
+
+---
+
+## 13. A known battery capacity outranks the API's `ResidualEnergy`
+
+**Decision.** When `BATTERY_CAPACITY_KWH` is set (or a nameplate capacity is available), stored
+energy is computed as `capacity × SoC / 100`. The API's `ResidualEnergy` is reported for diagnosis
+but not used.
+
+**Why.** On an EQ4800-L6 — 27.96 kWh, per the installer's invoice — the API reported
+`ResidualEnergy = 26.9 kWh` at 68% SOC. That is 96% of the pack at a moment it was 68% full. The
+FoxESS app showed **19.01 kWh**, which is `27.96 × 0.68` exactly. `SoC` matched the app, so
+`ResidualEnergy` is the variable that cannot be trusted. The discrepancy factor (~1.41) is not a
+unit conversion and what the value represents on that firmware is unknown.
+
+Everything downstream inherited the error, because capacity was *derived from* `ResidualEnergy`:
+capacity read 39.56 kWh instead of 27.96, so usable read 22.9 kWh instead of 16.22.
+
+**This cannot regress a pack whose `ResidualEnergy` is sound.** With no configured or nameplate
+capacity the estimate falls back to the telemetry-derived one — which is itself `residual ÷ soc` —
+so multiplying it back by `soc` returns the original reading unchanged. A test pins that identity.
+
+**The disagreement is surfaced, not swallowed.** `reportedResidualKwh` stays on the snapshot,
+`/api/diagnostics` shows it beside `expectedFromSoc`, and `residualDisagrees()` drives a
+transition-logged warning. A plausible-looking number that is quietly 40% wrong is exactly the fault
+that should announce itself — this one was only caught because the owner happened to compare against
+the app.
+
+**Capacity is now displayed** beside the battery header. It was computed and sent to the browser but
+never shown, which is why the error stayed invisible; without it there is no way to tell whether
+"stored" is most of the pack or a fraction of it. It is formatted to two decimals rather than the
+usual one, because it is a fixed figure typed in from an invoice and `27.96` confirms the setting
+took effect in a way `28.0` does not.

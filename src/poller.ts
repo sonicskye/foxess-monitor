@@ -20,6 +20,8 @@ import { startOfLocalDay } from './localdate.ts';
 import {
   batteryEnergy,
   deriveCapacityKwh,
+  residualDisagrees,
+  type CapacitySource,
   normalizeDayTotals,
   normalizeHistory,
   normalizeSnapshot,
@@ -104,10 +106,14 @@ export function createPoller(opts: PollerOptions): Poller {
   let minSoc: number | null = null;
   let minSocOnGrid: number | null = null;
   /**
-   * Best pack-size estimate, kWh. Seeded from the device-detail nameplate, then superseded by a
-   * telemetry-derived figure and smoothed, since SOC arrives as an integer percent.
+   * Best pack-size estimate, kWh, and where it came from.
+   *
+   * Precedence: an explicit BATTERY_CAPACITY_KWH beats the device-detail nameplate, which beats a
+   * telemetry-derived figure. The first two are trusted enough that stored energy is computed as
+   * capacity x SOC rather than read from `ResidualEnergy`.
    */
-  let capacityKwh: number | null = null;
+  let capacityKwh: number | null = config.batteryCapacityKwh;
+  let capacitySource: CapacitySource = config.batteryCapacityKwh === null ? 'unknown' : 'config';
   let capacityFromTelemetry = false;
   let idle = false;
   let lastViewerAt = now();
@@ -124,6 +130,23 @@ export function createPoller(opts: PollerOptions): Poller {
     return to
       ? { level: 'warn', msg: 'inverter data has gone stale — display will show it as not live' }
       : { level: 'info', msg: 'inverter data is live again' };
+  });
+
+  /**
+   * One line when `ResidualEnergy` starts disagreeing with capacity x SOC, one when it stops.
+   *
+   * This is the fault that hid a wrong battery reading in plain sight: a plausible-looking number
+   * that happened to be 40% too high. It should announce itself rather than wait to be noticed.
+   */
+  const trackResidual = createTransitionLogger<boolean>(log, (from, to) => {
+    if (from === undefined && !to) return null;
+    return to
+      ? {
+          level: 'warn',
+          msg: 'the API\'s ResidualEnergy disagrees with capacity x SOC — using capacity x SOC',
+          fields: { see: 'docs/DECISIONS.md' },
+        }
+      : { level: 'info', msg: 'ResidualEnergy agrees with capacity x SOC again' };
   });
 
   const trackIdle = createTransitionLogger<boolean>(log, (from, to) => {
@@ -307,8 +330,10 @@ export function createPoller(opts: PollerOptions): Poller {
     try {
       const detail = await api.deviceDetail(found[0]!.sn);
       const nameplate = parseNameplateCapacityKwh(detail.batteryList);
-      if (nameplate !== null && !capacityFromTelemetry) {
+      // Never override an explicitly configured capacity — that is the operator's ground truth.
+      if (nameplate !== null && capacitySource !== 'config') {
         capacityKwh = nameplate;
+        capacitySource = 'nameplate';
         log.info('battery capacity from nameplate', { capacityKwh: nameplate });
       }
       const station = detail.stationName ?? found[0]!.stationName;
@@ -366,11 +391,18 @@ export function createPoller(opts: PollerOptions): Poller {
    * rather than being averaged with it, since the two are not measuring quite the same thing.
    */
   function updateCapacity(snapshot: Snapshot): void {
+    // A configured or nameplate capacity is authoritative; telemetry must not overwrite it.
+    if (capacitySource === 'config' || capacitySource === 'nameplate') {
+      trackResidual(residualDisagrees(snapshot.residualKwh, capacityKwh, snapshot.soc));
+      return;
+    }
+
     const derived = deriveCapacityKwh(snapshot.soc, snapshot.residualKwh);
     if (derived === null) return;
 
     if (!capacityFromTelemetry || capacityKwh === null) {
       capacityKwh = derived;
+      capacitySource = 'derived';
       capacityFromTelemetry = true;
       log.info('battery capacity estimated from telemetry', { capacityKwh: Number(derived.toFixed(2)) });
       return;
@@ -546,6 +578,7 @@ export function createPoller(opts: PollerOptions): Poller {
           soc: primary?.soc ?? null,
           residualKwh: primary?.residualKwh ?? null,
           capacityKwh,
+          capacitySource,
           minSoc,
           minSocOnGrid,
           runningState: primary?.runningState ?? null,

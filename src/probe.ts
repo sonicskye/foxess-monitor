@@ -1,10 +1,11 @@
 /**
- * `npm run probe` — verify credentials against the live API for exactly 3 calls.
+ * `npm run probe` — verify credentials against the live API for exactly 4 calls.
  *
- * Spending 3 of 1440 to find out whether the key and the signature work is the cheapest possible
+ * Spending 4 of 1440 to find out whether the key and the signature work is the cheapest possible
  * end-to-end check, and it is the right first thing to run against a real account. It prints what
- * it found — quota, inverters, and the live variable table — so a wrong serial or a grid-tied
- * inverter with no battery shows up immediately rather than as an empty dashboard later.
+ * it found — quota, inverters, the live variable table and the battery inputs — so a wrong serial,
+ * a grid-tied inverter, or a `ResidualEnergy` that disagrees with SOC shows up immediately rather
+ * than as a wrong number on the dashboard later.
  *
  * Read-only. Makes no changes to anything.
  */
@@ -14,6 +15,7 @@ import { createBudget } from './budget.ts';
 import { ConfigError, loadConfig } from './config.ts';
 import { createClient } from './foxess/client.ts';
 import { createEndpoints, REAL_VARIABLES } from './foxess/endpoints.ts';
+import { deriveCapacityKwh, parseNameplateCapacityKwh, residualDisagrees } from './normalize.ts';
 import { FoxApiError } from './foxess/types.ts';
 import { configureLogging, createLogger } from './log.ts';
 
@@ -65,10 +67,10 @@ async function main(): Promise<number> {
     createClient({ apiBase: config.apiBase, apiKey: config.apiKey, budget, audit, log }),
   );
 
-  process.stdout.write(`\nProbing ${config.apiBase} — this will spend 3 API calls.\n`);
+  process.stdout.write(`\nProbing ${config.apiBase} — this will spend 4 API calls.\n`);
 
-  // ── 1/3 quota ───────────────────────────────────────────────────────────────
-  heading('1/3  Quota  (/op/v0/user/getAccessCount)');
+  // ── 1/4 quota ───────────────────────────────────────────────────────────────
+  heading('1/4  Quota  (/op/v0/user/getAccessCount)');
   const quota = await api.accessCount();
   budget.reconcile(quota);
   bullet('total', String(quota.total));
@@ -80,8 +82,8 @@ async function main(): Promise<number> {
     );
   }
 
-  // ── 2/3 devices ─────────────────────────────────────────────────────────────
-  heading('2/3  Inverters  (/op/v0/device/list)');
+  // ── 2/4 devices ─────────────────────────────────────────────────────────────
+  heading('2/4  Inverters  (/op/v0/device/list)');
   const devices = await api.deviceList();
   if (devices.length === 0) {
     process.stdout.write('  \x1b[31mNo inverters on this account.\x1b[0m\n');
@@ -108,8 +110,8 @@ async function main(): Promise<number> {
 
   const target = configured.find((sn) => known.has(sn)) ?? devices[0]!.deviceSN;
 
-  // ── 3/3 live data ───────────────────────────────────────────────────────────
-  heading(`3/3  Live data  (/op/v1/device/real/query, ${target})`);
+  // ── 3/4 live data ───────────────────────────────────────────────────────────
+  heading(`3/4  Live data  (/op/v1/device/real/query, ${target})`);
   const [live] = await api.realQuery([target]);
 
   if (!live || live.datas.length === 0) {
@@ -130,6 +132,61 @@ async function main(): Promise<number> {
 
   const stamped = live.datas.find((d) => d.time)?.time;
   if (stamped) bullet('inverter time', stamped);
+
+  // ── 4/4 battery ─────────────────────────────────────────────────────────────
+  heading(`4/4  Battery  (/op/v0/device/battery/soc/get, ${target})`);
+  const num = (name: string): number | null => {
+    const raw = byName.get(name)?.value;
+    const value = typeof raw === 'number' ? raw : Number(raw);
+    return Number.isFinite(value) ? value : null;
+  };
+
+  try {
+    const floors = await api.batterySoc(target);
+    bullet('minSoc', floors.minSoc === undefined ? '— not reported' : `${floors.minSoc} %`);
+    bullet(
+      'minSocOnGrid',
+      floors.minSocOnGrid === undefined ? '— not reported' : `${floors.minSocOnGrid} %`,
+    );
+  } catch (err) {
+    bullet('min SOC', `\x1b[33munavailable: ${err instanceof Error ? err.message : String(err)}\x1b[0m`);
+  }
+
+  const detail = devices.find((d) => d.deviceSN === target);
+  const nameplate = parseNameplateCapacityKwh(
+    (detail as { batteryList?: { capicty?: string | number }[] } | undefined)?.batteryList,
+  );
+  bullet('nameplate capicty', nameplate === null ? '— not reported by device/list' : `${nameplate} kWh`);
+
+  const soc = num('SoC');
+  const residual = num('ResidualEnergy');
+  const derived = deriveCapacityKwh(soc, residual);
+  bullet('SoC', soc === null ? '—' : `${soc} %`);
+  bullet('ResidualEnergy', residual === null ? '—' : `${residual} kWh`);
+  bullet('derived capacity', derived === null ? '— (needs SOC above 20%)' : `${derived.toFixed(2)} kWh`);
+
+  const configuredCapacity = config.batteryCapacityKwh;
+  if (configuredCapacity !== null) {
+    bullet('BATTERY_CAPACITY_KWH', `${configuredCapacity} kWh (authoritative)`);
+    bullet(
+      'stored = cap x SoC',
+      soc === null ? '—' : `${(configuredCapacity * (soc / 100)).toFixed(2)} kWh`,
+    );
+  }
+
+  const reference = configuredCapacity ?? nameplate;
+  if (residualDisagrees(residual, reference, soc)) {
+    process.stdout.write(
+      `\n  \x1b[33m! ResidualEnergy (${residual}) disagrees with capacity x SoC ` +
+        `(${(reference! * (soc! / 100)).toFixed(2)}). On this hardware ResidualEnergy is not\n` +
+        `    remaining energy — set BATTERY_CAPACITY_KWH so stored is computed from SOC instead.\x1b[0m\n`,
+    );
+  } else if (reference === null) {
+    process.stdout.write(
+      `\n  \x1b[90mNo capacity known, so stored energy falls back to ResidualEnergy. If that figure\n` +
+        `    disagrees with the FoxESS app, set BATTERY_CAPACITY_KWH to your pack size.\x1b[0m\n`,
+    );
+  }
 
   const missing = REAL_VARIABLES.filter((v) => !byName.has(v));
   if (missing.length > 0) {

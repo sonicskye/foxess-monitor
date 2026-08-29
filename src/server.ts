@@ -21,6 +21,7 @@ import { configureLogging, createLogger, installCrashHandlers } from './log.ts';
 import { createMockEndpoints } from './mock.ts';
 import { createPoller, type Poller } from './poller.ts';
 import { createSampleStore, downsample } from './store.ts';
+import { residualDisagrees } from './normalize.ts';
 import type { AuditLog } from './audit.ts';
 import type { Budget } from './budget.ts';
 import type { SampleStore } from './store.ts';
@@ -295,8 +296,24 @@ export function createApp(deps: AppDeps) {
 
       case '/api/diagnostics': {
         const state = poller.state();
+        const snap = poller.primary();
         sendJson(res, 200, {
           budget: budget.state(),
+          // Raw battery inputs, so a wrong reading can be diagnosed here rather than by reading
+          // source or cross-checking against the FoxESS app.
+          battery: {
+            ...state.battery,
+            soc: snap?.soc ?? null,
+            expectedFromSoc:
+              state.battery.capacityKwh !== null && snap?.soc != null
+                ? Number((state.battery.capacityKwh * (snap.soc / 100)).toFixed(3))
+                : null,
+            residualDisagrees: residualDisagrees(
+              state.battery.reportedResidualKwh,
+              state.battery.capacityKwh,
+              snap?.soc ?? null,
+            ),
+          },
           jobs: state.jobs,
           devices: state.devices,
           idle: state.idle,

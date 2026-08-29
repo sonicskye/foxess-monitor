@@ -8,6 +8,7 @@ import {
   normalizeDayTotals,
   normalizeHistory,
   normalizeSnapshot,
+  residualDisagrees,
   parseInverterTime,
   toSample,
 } from '../src/normalize.ts';
@@ -310,8 +311,8 @@ describe('batteryEnergy', () => {
     });
 
     assert.deepEqual(e, {
-      capacityKwh: null, storedKwh: null, floorPercent: null,
-      reservedKwh: null, usableKwh: null, usablePercent: null,
+      capacityKwh: null, capacitySource: 'unknown', storedKwh: null, reportedResidualKwh: null,
+      floorPercent: null, reservedKwh: null, usableKwh: null, usablePercent: null,
     });
   });
 
@@ -385,6 +386,98 @@ describe('batteryEnergy', () => {
     });
     assert.equal(e.usableKwh?.toFixed(2), '8.32');
     assert.equal(e.usablePercent, 80);
+  });
+});
+
+describe('a known capacity beats the API ResidualEnergy', () => {
+  /*
+   * The real reported case. An EQ4800-L6 (27.96 kWh, one master + six slaves) at 68% SOC:
+   *
+   *   FoxESS app says      19.01 kWh remaining   ( = 27.96 x 0.68, exactly )
+   *   API ResidualEnergy   26.9 kWh              ( = 96% of the pack, at 68% charge )
+   *
+   * SOC matches the app, so ResidualEnergy is the input that is wrong on this hardware.
+   */
+  const REAL = {
+    soc: 68,
+    residualKwh: 26.9,
+    capacityKwh: 27.96,
+    minSoc: 10,
+    minSocOnGrid: 10,
+    runningState: 163,
+  } as const;
+
+  test('reproduces the FoxESS app exactly', () => {
+    const e = batteryEnergy({ ...REAL, capacitySource: 'config' });
+
+    assert.equal(e.storedKwh, 19.0128, 'must match the app, not ResidualEnergy');
+    assert.equal(e.storedKwh?.toFixed(2), '19.01');
+    assert.equal(e.capacityKwh, 27.96);
+    assert.equal(e.reservedKwh?.toFixed(2), '2.80');
+    assert.equal(e.usableKwh?.toFixed(2), '16.22');
+    assert.equal(e.usablePercent, 58);
+  });
+
+  test('keeps the disputed reading visible rather than discarding it', () => {
+    const e = batteryEnergy({ ...REAL, capacitySource: 'config' });
+
+    assert.equal(e.reportedResidualKwh, 26.9, 'the raw value must still be reportable');
+    assert.equal(e.capacitySource, 'config');
+  });
+
+  test('the nameplate is trusted the same way as an explicit setting', () => {
+    const e = batteryEnergy({ ...REAL, capacitySource: 'nameplate' });
+    assert.equal(e.storedKwh?.toFixed(2), '19.01');
+  });
+
+  test('without a trusted capacity the old behaviour is unchanged', () => {
+    // The safety property: nobody whose ResidualEnergy is sound may be affected. A derived capacity
+    // IS residual/soc, so multiplying it back by soc must return the original reading untouched.
+    const derivedCapacity = deriveCapacityKwh(REAL.soc, REAL.residualKwh);
+    const e = batteryEnergy({ ...REAL, capacityKwh: derivedCapacity, capacitySource: 'derived' });
+
+    assert.equal(e.storedKwh, 26.9, 'a derived capacity must not change stored energy');
+    assert.equal(e.usableKwh?.toFixed(2), '22.94');
+  });
+
+  test('a sound pack is unaffected: stored is identical either way', () => {
+    // A pack where ResidualEnergy agrees with SOC — configuring the capacity changes nothing.
+    const sound = { soc: 74, residualKwh: 7.7, minSoc: 10, minSocOnGrid: 20, runningState: 163 };
+    const configured = batteryEnergy({ ...sound, capacityKwh: 10.4054, capacitySource: 'config' });
+    const untouched = batteryEnergy({ ...sound, capacityKwh: null, capacitySource: 'unknown' });
+
+    assert.equal(configured.storedKwh?.toFixed(2), untouched.storedKwh?.toFixed(2));
+    assert.equal(configured.usableKwh?.toFixed(2), untouched.usableKwh?.toFixed(2));
+  });
+
+  test('stored tracks SOC when the capacity is pinned', () => {
+    const at = (soc: number) =>
+      batteryEnergy({ ...REAL, soc, capacitySource: 'config' }).storedKwh?.toFixed(2);
+
+    assert.equal(at(100), '27.96', 'full means the whole pack');
+    assert.equal(at(50), '13.98');
+    assert.equal(at(0), '0.00');
+  });
+});
+
+describe('residualDisagrees', () => {
+  test('flags the real case', () => {
+    // 26.9 reported against 27.96 x 0.68 = 19.01 expected — 41% out.
+    assert.equal(residualDisagrees(26.9, 27.96, 68), true);
+  });
+
+  test('accepts normal measurement noise', () => {
+    // SOC is an integer percent, so a few percent of disagreement is expected and fine.
+    assert.equal(residualDisagrees(19.01, 27.96, 68), false);
+    assert.equal(residualDisagrees(19.5, 27.96, 68), false);
+    assert.equal(residualDisagrees(18.5, 27.96, 68), false);
+  });
+
+  test('says nothing when it cannot tell', () => {
+    assert.equal(residualDisagrees(null, 27.96, 68), false);
+    assert.equal(residualDisagrees(26.9, null, 68), false);
+    assert.equal(residualDisagrees(26.9, 27.96, null), false);
+    assert.equal(residualDisagrees(26.9, 27.96, 0), false, 'no expectation at 0% SOC');
   });
 });
 

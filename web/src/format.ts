@@ -17,6 +17,18 @@ export function kwh(value: number | null | undefined): string {
   return magnitude < 10 ? magnitude.toFixed(2) : magnitude.toFixed(1);
 }
 
+/**
+ * Pack capacity, to two decimals.
+ *
+ * Deliberately more precise than `kwh()`: capacity is a fixed nameplate figure the owner typed in
+ * from an invoice, so showing 27.96 rather than 28.0 confirms the setting took effect. Fluctuating
+ * measurements keep the coarser format.
+ */
+export function capacityKwh(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  return value.toFixed(2);
+}
+
 export function percent(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return EM_DASH;
   return String(Math.round(value));
