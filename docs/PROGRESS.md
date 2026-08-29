@@ -142,11 +142,40 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 > `[Service]`, where systemd **silently ignores them**. They belong in `[Unit]`. The restart limiter
 > would have done nothing.
 
+## Step 9 — Flow diagram: inverter as hub, drawn icons, live status
+
+- [x] `web/src/components/Icons.tsx` — **new**: solar panel, house, battery (fill tracks SOC),
+      transmission pylon, IEC inverter symbol, alert triangle. SVG paths in `currentColor`, not
+      emoji — a glyph like `▭` depends on the machine's fonts and cannot be themed.
+- [x] `FlowDiagram.tsx` rewritten — four edges all incident on the **inverter**; card nodes with
+      icon, label, value and status; `aria-label` built from live values
+- [x] Battery status (`charging` / `discharging` / `idle` / `not fitted`) and grid status
+      (`importing` / `exporting` / `balanced`) on the cards
+- [x] `runningStateLabel()` in `web/src/format.ts` + the real 160–170 enum
+- [x] `--grid` identity colour; `styles.css` flow block rewritten for cards
+- [x] `src/mock.ts` — `runningState` 1 → 163, `generationPower` → `load + export`
+      files: web/src/components/{Icons,FlowDiagram}.tsx, web/src/{format.ts,theme.css,styles.css,app.tsx},
+      src/mock.ts, test/format.test.ts
+      verified: `npm test` 218/218 · typecheck clean · flow panel screenshotted in export, evening
+      draw, off-grid, fault and no-battery states, light and dark, no page scroll at 1366×768
+
+> **Three bugs fixed here:**
+> 1. The old diagram made **Home** the hub, so it showed the house exporting to the grid. In a
+>    hybrid system everything meets at the inverter — see `DECISIONS.md` §7.
+> 2. `.flow-card.is-dim` never worked: the component set `color` inline, and an inline style beats a
+>    class rule, so idle nodes kept their full-strength accent. Resolved in the component instead.
+> 3. `--grid-export` is the *same hex* as `--home`, so on any sunny afternoon the mirrored Grid and
+>    Home cards were identical blue. Grid now has a fixed identity colour — `DECISIONS.md` §8.
+
+> **Also found:** the mock had been sending `runningState: 1` since it was written. The real codes
+> are 160–170; nothing consumed the field until now, so it went unnoticed. The enum is in
+> `API-NOTES.md`, and `runningStateLabel()` reports an unknown code rather than guessing.
+
 ---
 
 ## Done
 
-All eight steps complete. 213 tests, typecheck clean on both projects, production build verified.
+All nine steps complete. 218 tests, typecheck clean on both projects, production build verified.
 
 **The one thing not yet verified: no request has ever been made to the real FoxESS API.**
 Everything is tested against a stubbed fetch and a synthetic day. Run `npm run probe` with a real
@@ -158,7 +187,7 @@ Everything is tested against a stubbed fetch and a synthetic day. Run `npm run p
 
 **Current step:** none — the build is complete.
 
-**State:** All eight steps done. 213 tests green, typecheck clean, production build verified by
+**State:** All nine steps done. 218 tests green, typecheck clean, production build verified by
 running `dist/server.js` and exercising every route.
 
 **Next command:**
@@ -176,6 +205,8 @@ changing anything.
 
 - Multi-inverter UI: the backend already discovers and polls several, but the header has no device
   switcher, so only the first is shown.
+- The flow diagram shows one inverter. A multi-inverter site would need either a hub per inverter or
+  an aggregated view.
 - Multi-day history: samples are retained for 14 days but only today is charted.
 - Cost/tariff overlay on the grid strip.
 

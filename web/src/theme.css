@@ -5,11 +5,14 @@
  * BOTH light and dark: worst-pair CVD ΔE 9.2 light / 9.4 dark (target ≥8), normal-vision ΔE 24.0 /
  * 20.9 (floor ≥15).
  *
- * Only THREE categorical series exist, and that is deliberate. Four all-pairs-distinct hues cannot
- * clear the colour-blindness gates — every candidate ordering failed in dark mode. Grid is
- * therefore not a fourth series: it is signed data, so it gets a diverging encoding (import ↔
- * export around zero) on its own strip. See docs/DECISIONS.md §5. Adding a fourth series here
- * means re-running the validator, not picking a nice colour.
+ * Only THREE categorical CHART series exist, and that is deliberate. Four all-pairs-distinct hues
+ * cannot clear the colour-blindness gates — every candidate ordering failed in dark mode. In the
+ * chart, grid is therefore not a fourth series: it is signed data, so it gets a diverging encoding
+ * (import ↔ export around zero) on its own strip. See docs/DECISIONS.md §5.
+ *
+ * The FLOW DIAGRAM is a different problem: there, grid is an entity sitting beside four others, so
+ * it needs a stable identity colour (`--grid`) rather than one that changes with direction. See
+ * docs/DECISIONS.md §8. Adding a colour here means re-running the validator, not picking a nice one.
  *
  * Dark values are separately chosen steps for the dark surface, not an automatic inversion.
  */
@@ -31,7 +34,12 @@
   --home: #2a78d6;
   --battery: #1baf7a;
 
-  /* Diverging poles for grid flow. Warm/cool so they read as opposite. */
+  /* Grid identity, for the flow diagram. Direction is carried by the arrow and the word. */
+  --grid: #e87ba4;
+
+  /* Diverging poles for the grid strip and the import/export totals. Warm/cool, so they read as
+     opposite. NOTE --grid-export is deliberately the same blue as --home; that is fine in the
+     chart, where they never appear side by side, but is why the flow diagram uses --grid instead. */
   --grid-import: #d03b3b;
   --grid-export: #2a78d6;
   --grid-neutral: #f0efec;
@@ -68,6 +76,7 @@
     --home: #3987e5;
     --battery: #199e70;
 
+    --grid: #d55181;
     --grid-import: #d03b3b;
     --grid-export: #3987e5;
     --grid-neutral: #383835;
@@ -94,6 +103,7 @@
   --home: #3987e5;
   --battery: #199e70;
 
+  --grid: #d55181;
   --grid-import: #d03b3b;
   --grid-export: #3987e5;
   --grid-neutral: #383835;

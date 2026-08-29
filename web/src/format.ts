@@ -75,6 +75,37 @@ export function batteryDirection(batteryKw: number | null): 'charging' | 'discha
   return batteryKw > 0 ? 'charging' : 'discharging';
 }
 
+/**
+ * Inverter running state.
+ *
+ * The codes are 160–170, from the official variable documentation (see docs/API-NOTES.md). Note
+ * they do NOT start at 0 or 1 — anything outside this range is not a running state, and is
+ * reported as an unknown code rather than guessed at.
+ */
+export type StateSeverity = 'normal' | 'notice' | 'fault';
+
+const RUNNING_STATE: Record<number, { label: string; severity: StateSeverity }> = {
+  160: { label: 'self-test', severity: 'notice' },
+  161: { label: 'waiting', severity: 'notice' },
+  162: { label: 'checking', severity: 'notice' },
+  163: { label: 'on-grid', severity: 'normal' },
+  // Running on backup: the grid is down. Normal operation, but worth seeing on the display.
+  164: { label: 'off-grid', severity: 'notice' },
+  165: { label: 'fault', severity: 'fault' },
+  166: { label: 'permanent fault', severity: 'fault' },
+  167: { label: 'standby', severity: 'normal' },
+  168: { label: 'upgrading', severity: 'notice' },
+  169: { label: 'self-test (FCT)', severity: 'notice' },
+  170: { label: 'illegal', severity: 'fault' },
+};
+
+export function runningStateLabel(
+  code: number | null | undefined,
+): { label: string; severity: StateSeverity } | null {
+  if (code === null || code === undefined || !Number.isFinite(code)) return null;
+  return RUNNING_STATE[code] ?? { label: `state ${code}`, severity: 'notice' };
+}
+
 /** Low-battery severity. Drives the meter colour AND an icon + label — never colour alone. */
 export type SocLevel = 'normal' | 'low' | 'critical';
 

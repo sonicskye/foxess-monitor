@@ -1,76 +1,157 @@
 /**
  * The energy flow diagram.
  *
- * Solar sits at the top; home, battery and grid below it. Each edge shows where power is going and
- * how much.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  THE INVERTER IS THE HUB — this is not a stylistic choice
+ * ─────────────────────────────────────────────────────────────────────────────
+ * In a FoxESS hybrid system, PV, the battery and the grid all connect to the INVERTER, and the
+ * house loads hang off it. The house has no direct connection to the grid.
  *
- * Direction is carried by THREE independent channels, so no single one is load-bearing:
+ * An earlier version drew solar→home, battery↔home and grid↔home, making Home the hub. It looked
+ * plausible and was wrong: it showed the house exporting to the grid, which never happens. If you
+ * are tempted to "simplify" this back to three edges, read docs/DECISIONS.md §7 first.
+ *
+ *      Solar ──►┐
+ *               │
+ *   Battery ◄──►├─ INVERTER ──► Home
+ *               │
+ *      Grid ◄──►┘
+ *
+ * Direction is carried by THREE independent channels, so none is load-bearing alone:
  *   1. an arrowhead pointing the way the energy travels,
- *   2. a numeric kW label,
+ *   2. a numeric kW value and a status word ("charging", "exporting"),
  *   3. a dash animation whose speed scales with power.
  *
  * The animation is pure CSS (`stroke-dashoffset`), never a requestAnimationFrame loop — this runs
- * for months on a Celeron, and a JS animation loop would keep a core busy forever. Under
- * `prefers-reduced-motion` the animation stops entirely and the arrowhead plus label still say
- * everything.
+ * for months on a Celeron. Under `prefers-reduced-motion` it stops entirely, and the arrowhead plus
+ * the words still say everything.
+ *
+ * The four flows are NOT reconciled. At the inverter, in (solar + discharge + import) should
+ * roughly equal out (load + charge + export), but conversion losses and per-variable measurement
+ * timing mean it will not tie exactly. These are measured values, not a solved balance.
  */
 
+import type { JSX } from 'preact';
 import type { Snapshot } from '../api.ts';
-import { kw } from '../format.ts';
+import { batteryDirection, gridDirection, kw, runningStateLabel } from '../format.ts';
+import { AlertIcon, BatteryIcon, GridIcon, HomeIcon, InverterIcon, SolarIcon } from './Icons.tsx';
 
+/** Below this, a flow is idle: the edge greys out and loses its arrow and number. */
 const IDLE_KW = 0.01;
 
-interface Edge {
-  id: string;
-  /** SVG path from source to destination. */
-  d: string;
-  /** kW along the edge; always positive. Zero means idle. */
-  power: number;
-  color: string;
-  /** Where to put the number. */
-  labelX: number;
-  labelY: number;
-  /** Reversed means the visual path is drawn against the flow direction. */
-  reverse: boolean;
-  title: string;
+/*
+ * Canvas aspect (2.2) is matched to the panel it sits in (~650x292) so the diagram fills the space
+ * instead of letterboxing. A cross needs vertical room, so the arms are deliberately asymmetric:
+ * short vertical ones to solar and battery, long horizontal ones to grid and home, which is where
+ * the spare width is.
+ */
+const W = 660;
+const H = 300;
+
+const CARD_W = 146;
+/** Solar and home need no status line, so their cards are shorter. */
+const CARD_H = 74;
+const PLAIN_H = 62;
+/** The hub is larger, so it reads as the centre of the system rather than a fifth peer. */
+const HUB_W = 154;
+const HUB_H = 82;
+
+const HUB = { x: W / 2, y: H / 2 };
+const SOLAR = { x: W / 2, y: 38 };
+const BATTERY = { x: W / 2, y: H - 40 };
+const GRID = { x: 84, y: H / 2 };
+const HOME = { x: W - 84, y: H / 2 };
+
+interface NodeSpec {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
-function Node({
-  x,
-  y,
+const NODES: Record<string, NodeSpec> = {
+  hub: { ...HUB, w: HUB_W, h: HUB_H },
+  solar: { ...SOLAR, w: CARD_W, h: PLAIN_H },
+  battery: { ...BATTERY, w: CARD_W, h: CARD_H },
+  grid: { ...GRID, w: CARD_W, h: CARD_H },
+  home: { ...HOME, w: CARD_W, h: PLAIN_H },
+};
+
+function Card({
+  node,
+  icon,
   label,
   value,
   unit,
+  status,
+  statusClass,
   color,
-  icon,
   dim,
+  hub,
+  alert,
 }: {
-  x: number;
-  y: number;
+  node: NodeSpec;
+  icon: JSX.Element;
   label: string;
   value: string;
   unit: string;
+  status?: string;
+  statusClass?: string;
   color: string;
-  icon: string;
   dim?: boolean;
+  hub?: boolean;
+  alert?: boolean;
 }) {
+  const left = node.x - node.w / 2;
+  const top = node.y - node.h / 2;
+
   return (
-    <g class={`flow-node${dim ? ' is-dim' : ''}`} transform={`translate(${x} ${y})`}>
-      <circle r="46" class="flow-node-bg" style={{ stroke: color }} />
-      <text class="flow-node-icon" y="-20" text-anchor="middle">
-        {icon}
-      </text>
-      <text class="flow-node-value" y="6" text-anchor="middle">
-        {value}
-      </text>
-      <text class="flow-node-unit" y="22" text-anchor="middle">
-        {unit}
-      </text>
-      <text class="flow-node-label" y="66" text-anchor="middle">
+    <g
+      class={`flow-card${dim ? ' is-dim' : ''}${hub ? ' is-hub' : ''}${alert ? ' is-alert' : ''}`}
+      // Resolved here rather than in CSS: an inline `color` would beat a `.is-dim` class rule,
+      // which is exactly the bug that left idle cards at full strength.
+      style={{ color: alert ? 'var(--critical)' : dim ? 'var(--axis)' : color }}
+      transform={`translate(${left} ${top})`}
+    >
+      <rect class="flow-card-bg" x="0" y="0" width={node.w} height={node.h} rx="10" />
+
+      <g transform={`translate(22 ${status ? 20 : 22})`}>{icon}</g>
+
+      <text class="flow-card-label" x="38" y={status ? 25 : 27}>
         {label}
       </text>
+
+      <text class="flow-card-value" x="15" y={status ? 51 : 52}>
+        {value}
+        <tspan class="flow-card-unit" dx="4">
+          {unit}
+        </tspan>
+      </text>
+
+      {status && (
+        <text class={`flow-card-status ${statusClass ?? ''}`} x="15" y="66">
+          {status}
+        </text>
+      )}
     </g>
   );
+}
+
+interface Edge {
+  id: string;
+  d: string;
+  /** Always positive. Below IDLE_KW the edge is drawn as idle. */
+  power: number;
+  color: string;
+  /** True when energy travels against the direction the path is drawn in. */
+  reverse: boolean;
+  labelX: number;
+  labelY: number;
+  anchor: 'start' | 'middle' | 'end';
+  /** Spoken description, used for the tooltip and the diagram's aria-label. */
+  description: string;
+  /** Null power means "this inverter has no such connection" — drawn as absent, not as zero. */
+  absent: boolean;
 }
 
 export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
@@ -78,63 +159,99 @@ export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
   const load = snapshot?.loadKw ?? null;
   const grid = snapshot?.gridKw ?? null;
   const battery = snapshot?.batteryKw ?? null;
+  const acOutput = snapshot?.generationKw ?? null;
+  const soc = snapshot?.soc ?? null;
 
-  // Node centres on a 560x300 canvas. Landscape rather than square so the diagram fills a wide
-  // panel instead of letterboxing into the middle third of it.
-  const SOLAR = { x: 280, y: 56 };
-  const HOME = { x: 280, y: 232 };
-  const BATTERY = { x: 74, y: 144 };
-  const GRID = { x: 486, y: 144 };
+  const gridWay = gridDirection(grid);
+  const batteryWay = batteryDirection(battery);
+  const state = runningStateLabel(snapshot?.runningState);
+
+  // Gaps between a card edge and the arrow, so the arrowhead never touches the card.
+  const GAP = 7;
+  const hubTop = HUB.y - HUB_H / 2;
+  const hubBottom = HUB.y + HUB_H / 2;
+  const hubLeft = HUB.x - HUB_W / 2;
+  const hubRight = HUB.x + HUB_W / 2;
 
   const edges: Edge[] = [
     {
-      id: 'solar-home',
-      d: `M ${SOLAR.x} ${SOLAR.y + 48} L ${HOME.x} ${HOME.y - 48}`,
+      id: 'solar',
+      // Solar → inverter. PV only ever produces, so this never reverses.
+      d: `M ${SOLAR.x} ${SOLAR.y + PLAIN_H / 2 + GAP} L ${SOLAR.x} ${hubTop - GAP}`,
       power: Math.max(0, solar ?? 0),
       color: 'var(--solar)',
-      labelX: SOLAR.x + 48,
-      labelY: 148,
       reverse: false,
-      title: 'Solar to home',
+      labelX: SOLAR.x + 12,
+      labelY: (SOLAR.y + PLAIN_H / 2 + hubTop) / 2 + 4,
+      anchor: 'start',
+      description:
+        (solar ?? 0) >= IDLE_KW ? `solar producing ${kw(solar)} kilowatts` : 'solar not producing',
+      absent: solar === null,
     },
     {
       id: 'battery',
-      // Drawn battery → home. Charging reverses it.
-      d: `M ${BATTERY.x + 40} ${BATTERY.y + 26} Q ${BATTERY.x + 60} ${HOME.y} ${HOME.x - 48} ${HOME.y - 6}`,
+      // Drawn inverter → battery, i.e. the charging direction. Discharging reverses it.
+      d: `M ${BATTERY.x} ${hubBottom + GAP} L ${BATTERY.x} ${BATTERY.y - CARD_H / 2 - GAP}`,
       power: Math.abs(battery ?? 0),
       color: 'var(--battery)',
-      labelX: 152,
-      labelY: 226,
-      reverse: (battery ?? 0) > 0, // charging: home side → battery
-      title: (battery ?? 0) > 0 ? 'Charging battery' : 'Battery to home',
+      reverse: batteryWay === 'discharging',
+      labelX: BATTERY.x + 12,
+      labelY: (hubBottom + BATTERY.y - CARD_H / 2) / 2 + 4,
+      anchor: 'start',
+      description:
+        batteryWay === 'idle'
+          ? 'battery idle'
+          : `battery ${batteryWay} at ${kw(Math.abs(battery ?? 0))} kilowatts`,
+      absent: battery === null,
     },
     {
       id: 'grid',
-      // Drawn grid → home. Exporting reverses it.
-      d: `M ${GRID.x - 40} ${GRID.y + 26} Q ${GRID.x - 60} ${HOME.y} ${HOME.x + 48} ${HOME.y - 6}`,
+      // Drawn grid → inverter, i.e. the importing direction. Exporting reverses it.
+      d: `M ${GRID.x + CARD_W / 2 + GAP} ${GRID.y} L ${hubLeft - GAP} ${GRID.y}`,
       power: Math.abs(grid ?? 0),
-      color: (grid ?? 0) < 0 ? 'var(--grid-export)' : 'var(--grid-import)',
-      labelX: 408,
-      labelY: 226,
-      reverse: (grid ?? 0) < 0, // exporting: home side → grid
-      title: (grid ?? 0) < 0 ? 'Exporting to grid' : 'Importing from grid',
+      // Identity, not state: a node must not repaint as power changes direction. The arrowhead and
+      // the "importing"/"exporting" word carry direction. See docs/DECISIONS.md §8.
+      color: 'var(--grid)',
+      reverse: gridWay === 'export',
+      labelX: (GRID.x + CARD_W / 2 + hubLeft) / 2,
+      labelY: GRID.y - 12,
+      anchor: 'middle',
+      description:
+        gridWay === 'idle'
+          ? 'grid balanced'
+          : `${gridWay === 'export' ? 'exporting' : 'importing'} ${kw(Math.abs(grid ?? 0))} kilowatts`,
+      absent: grid === null,
+    },
+    {
+      id: 'home',
+      // Inverter → home. Loads only ever consume, so this never reverses.
+      d: `M ${hubRight + GAP} ${HOME.y} L ${HOME.x - CARD_W / 2 - GAP} ${HOME.y}`,
+      power: Math.max(0, load ?? 0),
+      color: 'var(--home)',
+      reverse: false,
+      labelX: (hubRight + HOME.x - CARD_W / 2) / 2,
+      labelY: HOME.y - 12,
+      anchor: 'middle',
+      description: `home using ${kw(load)} kilowatts`,
+      absent: load === null,
     },
   ];
 
+  // Spoken from live values, so a screen reader gets the same information as the picture.
+  const summary = edges
+    .filter((edge) => !edge.absent)
+    .map((edge) => edge.description)
+    .join('; ');
+
   return (
-    <svg
-      class="flow"
-      viewBox="0 0 560 300"
-      role="img"
-      aria-label="Energy flow between solar, home, battery and grid"
-    >
+    <svg class="flow" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Energy flow: ${summary}`}>
       <defs>
         {edges.map((edge) => (
           <marker
             key={edge.id}
             id={`arrow-${edge.id}`}
             viewBox="0 0 10 10"
-            refX="8"
+            refX="7"
             refY="5"
             markerWidth="5"
             markerHeight="5"
@@ -146,13 +263,14 @@ export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
       </defs>
 
       {edges.map((edge) => {
+        if (edge.absent) return null;
         const idle = edge.power < IDLE_KW;
-        // Faster flow for more power, clamped so a 5 kW surge is not a blur.
-        const duration = idle ? 0 : Math.max(0.5, 3 - Math.min(edge.power, 5) * 0.45);
+        // Faster for more power, floored so a 5 kW surge is not a blur.
+        const duration = Math.max(0.5, 3 - Math.min(edge.power, 5) * 0.45);
 
         return (
           <g key={edge.id} class={idle ? 'flow-edge is-idle' : 'flow-edge'}>
-            <title>{`${edge.title}: ${kw(edge.power)} kW`}</title>
+            <title>{edge.description}</title>
             <path
               class="flow-edge-track"
               d={edge.d}
@@ -176,40 +294,74 @@ export function FlowDiagram({ snapshot }: { snapshot: Snapshot | null }) {
       })}
 
       {edges.map((edge) =>
-        edge.power < IDLE_KW ? null : (
-          <text key={`${edge.id}-label`} class="flow-edge-label" x={edge.labelX} y={edge.labelY}>
+        edge.absent || edge.power < IDLE_KW ? null : (
+          <text
+            key={`${edge.id}-label`}
+            class="flow-edge-label"
+            x={edge.labelX}
+            y={edge.labelY}
+            text-anchor={edge.anchor}
+          >
             {kw(edge.power)} kW
           </text>
         ),
       )}
 
-      <Node
-        {...SOLAR}
-        icon="☀"
+      <Card
+        node={NODES['solar']!}
+        icon={<SolarIcon size={22} />}
         label="Solar"
         value={kw(solar)}
         unit="kW"
         color="var(--solar)"
         dim={(solar ?? 0) < IDLE_KW}
       />
-      <Node {...HOME} icon="⌂" label="Home" value={kw(load)} unit="kW" color="var(--home)" />
-      <Node
-        {...BATTERY}
-        icon="▭"
-        label="Battery"
-        value={kw(battery)}
+
+      <Card
+        node={NODES['grid']!}
+        icon={<GridIcon size={22} />}
+        label="Grid"
+        value={kw(grid === null ? null : Math.abs(grid))}
         unit="kW"
+        status={gridWay === 'idle' ? 'balanced' : gridWay === 'export' ? 'exporting' : 'importing'}
+        color="var(--grid)"
+        dim={Math.abs(grid ?? 0) < IDLE_KW}
+      />
+
+      <Card
+        node={NODES['hub']!}
+        hub
+        // A fault outlines the whole card, so it is visible from across the room — which is the
+        // point of a wall display.
+        alert={state?.severity === 'fault'}
+        icon={state?.severity === 'fault' ? <AlertIcon size={23} /> : <InverterIcon size={23} />}
+        label="Inverter"
+        value={kw(acOutput)}
+        unit="kW"
+        // A fault state gets the reserved colour AND the warning icon AND the word — never colour alone.
+        status={state?.label ?? 'no status'}
+        statusClass={state ? `is-${state.severity}` : undefined}
+        color="var(--text-secondary)"
+      />
+
+      <Card
+        node={NODES['home']!}
+        icon={<HomeIcon size={22} />}
+        label="Home"
+        value={kw(load)}
+        unit="kW"
+        color="var(--home)"
+      />
+
+      <Card
+        node={NODES['battery']!}
+        icon={<BatteryIcon size={22} soc={soc} />}
+        label="Battery"
+        value={kw(battery === null ? null : Math.abs(battery))}
+        unit="kW"
+        status={battery === null ? 'not fitted' : batteryWay === 'idle' ? 'idle' : batteryWay}
         color="var(--battery)"
         dim={Math.abs(battery ?? 0) < IDLE_KW}
-      />
-      <Node
-        {...GRID}
-        icon="⌁"
-        label="Grid"
-        value={kw(grid)}
-        unit="kW"
-        color={(grid ?? 0) < 0 ? 'var(--grid-export)' : 'var(--grid-import)'}
-        dim={Math.abs(grid ?? 0) < IDLE_KW}
       />
     </svg>
   );

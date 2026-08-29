@@ -135,14 +135,21 @@ export function mockRealResult(at: number, timeZone: string): RealResult {
     { variable: 'batChargePower', unit: 'kW', value: Math.max(0, r.batteryKw) },
     { variable: 'batDischargePower', unit: 'kW', value: Math.max(0, -r.batteryKw) },
     { variable: 'invBatPower', unit: 'kW', value: -r.batteryKw }, // positive on discharge, as the API does
-    { variable: 'generationPower', unit: 'kW', value: Number(Math.max(0, r.solarKw - Math.max(0, r.batteryKw)).toFixed(3)) },
+    // The inverter's AC output is what leaves it on the AC side: the house load plus anything
+    // exported. (It is NOT solar minus charging — that ignores imports and battery discharge.)
+    {
+      variable: 'generationPower',
+      unit: 'kW',
+      value: Number((r.loadKw + Math.max(0, -r.gridKw)).toFixed(3)),
+    },
     { variable: 'epsPower', unit: 'kW', value: 0 },
     { variable: 'SoC', unit: '%', value: r.soc },
     { variable: 'SOH', unit: '%', value: 99 },
     { variable: 'ResidualEnergy', unit: 'kWh', value: Number(((r.soc / 100) * BATTERY_CAPACITY_KWH).toFixed(2)) },
     { variable: 'batTemperature', unit: '℃', value: Number((17 + wobble(at / 3.6e6, 1.5)).toFixed(1)) },
     { variable: 'ambientTemperation', unit: '℃', value: Number((19 + wobble(at / 3.6e6 + 7, 3)).toFixed(1)) },
-    { variable: 'runningState', value: 1 },
+    // 163 = on-grid. The codes are 160–170; there is no state 1 (see docs/API-NOTES.md).
+    { variable: 'runningState', value: 163 },
   ];
 
   return { deviceSN: MOCK_SN, datas: datas.map((d) => ({ ...d, time })) };

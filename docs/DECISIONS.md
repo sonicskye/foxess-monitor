@@ -105,3 +105,56 @@ regardless.
 **Consequence.** Requires Node ≥ 20.6 (native `fetch`, `--env-file`). The server is compiled by
 `tsc` to plain JS rather than relying on the runtime's TypeScript support, so the deployed laptop
 only needs a plain Node runtime.
+
+---
+
+## 7. The inverter is the hub of the flow diagram, not the house
+
+**Decision.** The energy-flow diagram has four edges, all incident on the **inverter**:
+Solar → Inverter, Inverter → Home, Inverter ↔ Battery, Inverter ↔ Grid.
+
+**Why.** The first version drew three edges — solar→home, battery↔home, grid↔home — which made
+*Home* the hub. It looked plausible and was wrong: it showed the house exporting to the grid.
+
+In a FoxESS hybrid system (H1/H3 and similar) the PV strings, the battery and the grid connection
+all terminate at the inverter, and the house loads hang off it. There is no path between the house
+and the grid that does not go through the inverter. Drawing one misrepresents how the system works,
+and it is the sort of error that quietly teaches the owner something false about their own house.
+
+Solar → Inverter and Inverter → Home are one-way: PV only ever produces, loads only ever consume.
+Only the battery and grid edges reverse, and their direction comes straight from the sign
+conventions in `src/normalize.ts` via `batteryDirection()` / `gridDirection()`.
+
+**Do not reconcile the four flows.** In (`solar + discharge + import`) should roughly equal out
+(`load + charge + export`), but conversion losses and per-variable measurement timing mean it will
+not tie exactly. The diagram reports measured values; making them balance would mean inventing data.
+
+---
+
+## 8. Grid has a fixed colour in the flow diagram, and a diverging one in the chart
+
+**Decision.** In the flow diagram the grid node is always `--grid` (magenta); direction is carried
+by the arrowhead and the words "importing"/"exporting". The chart's grid strip keeps the diverging
+red/blue.
+
+**Why.** Two reasons that agree:
+
+- **They collided.** `--grid-export` is `#2a78d6`, which is *exactly* `--home`. In the chart that is
+  harmless — the grid strip and the home line never sit side by side. In the flow diagram, Grid and
+  Home are mirrored across the hub, so on any sunny afternoon two adjacent cards were the identical
+  blue. Measured ΔE 0.
+- **Colour should follow the entity, not its state.** Repainting a node as power changes direction
+  is the "recolour on filter" anti-pattern: a reader who learned "grid is the pink one" should not
+  have to relearn it at sunset. The chart strip is the opposite case — there the *whole point* is
+  polarity over time, so diverging is right and there is no neighbour to be confused with.
+
+**What was measured.** Re-stepping the export blue to a darker shade was tried first and rejected:
+`#184f95` vs `#2a78d6` scores normal-vision ΔE 14.7 light / 9.5 dark, under the ≥15 floor — two
+blues of different lightness do not read as two identities. Of the candidate hues, magenta separates
+best from home (dark: CVD ΔE 15.9, normal-vision 26.5, both passing).
+
+**The known weak pair.** Grid magenta vs battery aqua measures CVD ΔE 1.6 (deutan) on the dark
+surface — a red-green colourblind reader sees them as the same hue. Accepted because the flow
+diagram is not a chart: the two nodes are perpendicular rather than mirrored, and each carries a
+text label and a distinct drawn icon, so identity never rests on hue. If a fourth *chart* series is
+ever wanted, this does not license it — see §5.

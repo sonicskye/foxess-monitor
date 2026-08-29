@@ -200,7 +200,25 @@ uses). "ES" = available on energy-storage inverters, "GT" = grid-tied.
 | `invBatPower` | kW | Inverter-side battery power | ✓ | ✗ |
 | `batTemperature` | ℃ | Battery temperature | ✓ | ✗ |
 | `ambientTemperation` | ℃ | Ambient temperature *(sic — the API misspells it)* | ✓ | ✓ |
-| `runningState` | — | Running state | ✓ | ✓ |
+| `runningState` | — | Running state, see the enum below | ✓ | ✓ |
+
+### `runningState` values
+
+**The codes start at 160, not 0 or 1.** Anything outside 160–170 is not a running state, and should
+be surfaced as an unknown code rather than mapped to a plausible-looking label.
+
+| Code | Meaning | | Code | Meaning |
+|---:|---|---|---:|---|
+| 160 | self-test | | 166 | permanent-fault |
+| 161 | waiting | | 167 | standby |
+| 162 | checking | | 168 | upgrading |
+| 163 | **on-grid** — normal operation | | 169 | fct (factory self-test) |
+| 164 | off-grid — running on backup | | 170 | illegal |
+| 165 | fault | | | |
+
+Implemented as `runningStateLabel()` in `web/src/format.ts`, which also assigns a severity:
+`165`, `166` and `170` are faults; `164` is a notice (the grid is down and the house is on backup);
+`163` and `167` are normal.
 
 ### Sign conventions — read carefully
 

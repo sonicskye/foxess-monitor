@@ -167,7 +167,7 @@ export function App() {
               label="Grid"
               value={kw(grid === null ? null : Math.abs(grid))}
               unit="kW"
-              color={gridWay === 'export' ? 'var(--grid-export)' : 'var(--grid-import)'}
+              color="var(--grid)"
               note={gridWay === 'idle' ? 'balanced' : gridWay === 'export' ? 'exporting' : 'importing'}
             />
             <StatTile

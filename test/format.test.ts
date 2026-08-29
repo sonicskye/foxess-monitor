@@ -17,6 +17,7 @@ import {
   kwh,
   percent,
   relativeAge,
+  runningStateLabel,
   socLevel,
 } from '../web/src/format.ts';
 
@@ -119,6 +120,38 @@ describe('socLevel', () => {
   test('unknown SOC is not alarmed as critical', () => {
     // A missing reading is a data problem, shown by the staleness badge — not a flat battery.
     assert.equal(socLevel(null), 'normal');
+  });
+});
+
+describe('runningStateLabel', () => {
+  test('maps the documented codes', () => {
+    assert.deepEqual(runningStateLabel(163), { label: 'on-grid', severity: 'normal' });
+    assert.deepEqual(runningStateLabel(167), { label: 'standby', severity: 'normal' });
+    assert.equal(runningStateLabel(161)?.label, 'waiting');
+  });
+
+  test('faults are flagged as faults', () => {
+    // These get the reserved critical colour, and always ship with an icon and the word.
+    for (const code of [165, 166, 170]) {
+      assert.equal(runningStateLabel(code)?.severity, 'fault', `code ${code} should be a fault`);
+    }
+  });
+
+  test('off-grid is a notice, not a fault — the house is running on backup', () => {
+    assert.deepEqual(runningStateLabel(164), { label: 'off-grid', severity: 'notice' });
+  });
+
+  test('an unknown code is reported, not guessed at', () => {
+    // The codes start at 160. A 1 or a 0 is not "self-test", it is something we do not understand,
+    // and the display should say so rather than invent a reassuring label.
+    assert.deepEqual(runningStateLabel(1), { label: 'state 1', severity: 'notice' });
+    assert.deepEqual(runningStateLabel(999), { label: 'state 999', severity: 'notice' });
+  });
+
+  test('a missing state is null, so the card can say "no status"', () => {
+    assert.equal(runningStateLabel(null), null);
+    assert.equal(runningStateLabel(undefined), null);
+    assert.equal(runningStateLabel(NaN), null);
   });
 });
 
