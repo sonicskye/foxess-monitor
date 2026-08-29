@@ -1,0 +1,28 @@
+{
+  "name": "foxess-monitor",
+  "version": "0.1.0",
+  "description": "Read-only web dashboard for a FoxESS solar/battery system, driven by the official FoxESS OpenAPI.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "scripts": {
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsc -p tsconfig.json",
+    "build:web": "vite build --config web/vite.config.ts",
+    "start": "node --env-file-if-exists=.env dist/server.js",
+    "dev": "node --env-file-if-exists=.env --watch --experimental-strip-types src/server.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "probe": "node --env-file-if-exists=.env --experimental-strip-types src/probe.ts",
+    "test": "node --test --experimental-strip-types test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "preact": "^10.25.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}

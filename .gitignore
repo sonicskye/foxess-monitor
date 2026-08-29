@@ -1,0 +1,14 @@
+# secrets — never commit
+.env
+.env.local
+
+# runtime state: samples, budget counter, api audit trail
+data/
+
+# build output
+dist/
+web/dist/
+
+node_modules/
+*.log
+.DS_Store
