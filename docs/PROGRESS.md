@@ -33,16 +33,26 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## Step 2 — Request signing
 
-- [ ] `src/foxess/sign.ts` — md5 over `path\r\ntoken\r\ntimestamp` (**literal** backslashes)
-- [ ] `test/sign.test.ts` — golden vector + assert the CRLF variant differs
+- [x] `src/foxess/sign.ts` — md5 over `path\r\ntoken\r\ntimestamp` (**literal** backslashes),
+      `signablePath` strips origin + query
+- [x] `test/sign.test.ts` — two golden vectors, plus an assertion that the CRLF variant differs
+      files: src/foxess/sign.ts, test/sign.test.ts
+      verified: `npm test` — golden vectors pass
 
 ## Step 3 — Config & budget
 
-- [ ] `src/config.ts` — env parsing, defaults, projected-daily-calls validator (refuse to start
-      over `DAILY_CALL_BUDGET`)
-- [ ] `src/budget.ts` — persisted daily counter, local-midnight rollover, per-path 1.1 s gate,
-      `40400` backoff
-- [ ] `test/budget.test.ts` — refusal at cap, rollover, per-path gate
+- [x] `src/config.ts` — env parsing, defaults, projected-daily-calls validator (refuses to start
+      over `DAILY_CALL_BUDGET`), collects all problems at once, registers the key for redaction
+- [x] `src/budget.ts` — persisted daily counter, local-midnight rollover, per-path 1.1 s gate,
+      escalating `40400` backoff, `reconcile()` against getAccessCount
+- [x] `test/config.test.ts`, `test/budget.test.ts`
+      files: src/config.ts, src/budget.ts, test/config.test.ts, test/budget.test.ts
+      verified: `npm test` 84/84 · `npm run typecheck` clean
+
+> **Finding: 60 s live polling is impossible.** 1440 real calls/day *is* the entire FoxESS ceiling,
+> so even reducing the totals and quota jobs to once a day overshoots (1443). Even 75 s does not fit
+> alongside 10-minute totals (1464). **90 s is the fastest live poll that works** — which is what
+> the defaults use. Both bounds are pinned in `test/config.test.ts`.
 
 ## Step 4 — API client
 
@@ -89,19 +99,21 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## Resume here
 
-**Current step:** 2 — Request signing.
+**Current step:** 4 — API client.
 
-**State:** Steps 0–1 complete. Scaffold, continuity docs, logger with redaction, local-day
-arithmetic and the audit trail are in place and tested (26 tests green, typecheck clean).
+**State:** Steps 0–3 complete. Scaffold, docs, logger, audit trail, signing, config validation and
+budget enforcement are all in place (84 tests green, typecheck clean). Nothing has yet made a real
+API call.
 
 **Next command:**
 
 ```sh
-npm test && npm run typecheck    # confirm green, then write src/foxess/sign.ts
+npm test && npm run typecheck    # confirm green, then write src/foxess/client.ts
 ```
 
-**Open questions for the owner:** none. `FOXESS_API_KEY` is not needed until Step 4
-(`npm run probe`); everything before that is testable offline.
+**Open questions for the owner:** `FOXESS_API_KEY` is needed to finish Step 4 — `npm run probe`
+spends exactly 3 calls to confirm the credentials and the signature work against the live API.
+Everything up to that point is testable offline.
 
 **Watch out for:**
 
