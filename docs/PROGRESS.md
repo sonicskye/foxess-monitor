@@ -104,14 +104,29 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## Step 7 — Frontend
 
-- [ ] `web/` Vite + Preact scaffold, theme tokens (light/dark, validated palette)
-- [ ] `FlowDiagram` — SVG, CSS-only animation, reduced-motion safe
-- [ ] `SocMeter` — hero figure, same-ramp track, low-SOC states with icon + label
-- [ ] `StatTile` / KPI row / today's totals
-- [ ] `IntradayChart` (3 series) + `GridStrip` (diverging), shared x-axis
-- [ ] `TableView` toggle — every value reachable without hover
-- [ ] `Diagnostics` panel behind the `d` key
-      verified: 1366×768, light + dark, reduced-motion, low-SOC states
+- [x] `web/` Vite + Preact scaffold, theme tokens (light/dark, validated palette)
+- [x] `FlowDiagram` — SVG, CSS-only animation, reduced-motion safe
+- [x] `SocMeter` — hero figure, same-ramp track, low-SOC states with icon + label
+- [x] `StatTile` / live tiles / today's totals strip
+- [x] `IntradayChart` (3 series, signed axis) + diverging grid strip on a shared x-axis
+- [x] Table view toggle (`t`) — every value reachable without hover
+- [x] `Diagnostics` panel behind the `d` key
+- [x] `useSize` — charts drawn at true pixel size
+- [x] `test/format.test.ts` — direction and SOC-threshold logic
+      files: web/{index.html,vite.config.ts,tsconfig.json}, web/src/**, test/format.test.ts
+      verified: `npm test` 213/213 · `npm run typecheck` clean (both projects) ·
+      screenshotted at 1366×768 in light, dark, reduced-motion, table, diagnostics, phone,
+      low-SOC, critical-SOC and stale states. No page scroll at 1366×768, no console errors.
+      Bundle 35 KB JS + 11 KB CSS.
+
+> **Three bugs found by looking at the rendered page, not by tests:**
+> 1. The power plot used `Math.abs()`, so a **discharging battery drew identically to a charging
+>    one**. The axis now includes negatives with zero as a real baseline.
+> 2. The SVG used `preserveAspectRatio="none"`, which stretched the tick labels horizontally and
+>    gave the element an intrinsic height that overflowed its flex parent. Charts are now measured
+>    with `ResizeObserver` and drawn in real pixels.
+> 3. Tiles read `+0.90 kW discharging` — the sign contradicted the word. Tiles now show magnitude
+>    plus a direction word.
 
 ## Step 8 — Deploy
 
@@ -124,22 +139,21 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## Resume here
 
-**Current step:** 7 — Frontend.
+**Current step:** 8 — Deploy.
 
-**State:** Steps 0–6 complete (191 tests green, typecheck clean). The whole backend runs: start it
-in mock mode and every route answers. The API client has still **never spoken to the real API**.
+**State:** Steps 0–7 complete (213 tests green, typecheck clean). The application works end to end
+on synthetic data. The API client has still **never spoken to the real API** — that is the one
+outstanding verification.
 
 **Next command:**
 
 ```sh
-# backend on synthetic data, clock shifted to mid-afternoon so there is something to look at
-FOXESS_MOCK=1 MOCK_OFFSET_HOURS=9 npm run dev
+npm run build && FOXESS_MOCK=1 MOCK_OFFSET_HOURS=9 npm start   # then open http://localhost:8080
 ```
 
-Then build `web/` against it. `npm run dev:web` runs the Vite dev server.
-
-**Open questions for the owner:** `.env` needs a real `FOXESS_API_KEY` before `npm run probe` can
-confirm the signature works end to end. Step 7 does not need it.
+**Open questions for the owner:** `.env` needs a real `FOXESS_API_KEY`. Then `npm run probe`
+(3 calls) confirms the signature works against the live API. Everything else is done and verified
+offline.
 
 **Watch out for:**
 

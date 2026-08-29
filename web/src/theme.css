@@ -1,0 +1,103 @@
+/*
+ * Design tokens.
+ *
+ * The categorical series colours were run through the dataviz validator and pass every check in
+ * BOTH light and dark: worst-pair CVD ΔE 9.2 light / 9.4 dark (target ≥8), normal-vision ΔE 24.0 /
+ * 20.9 (floor ≥15).
+ *
+ * Only THREE categorical series exist, and that is deliberate. Four all-pairs-distinct hues cannot
+ * clear the colour-blindness gates — every candidate ordering failed in dark mode. Grid is
+ * therefore not a fourth series: it is signed data, so it gets a diverging encoding (import ↔
+ * export around zero) on its own strip. See docs/DECISIONS.md §5. Adding a fourth series here
+ * means re-running the validator, not picking a nice colour.
+ *
+ * Dark values are separately chosen steps for the dark surface, not an automatic inversion.
+ */
+
+:root {
+  color-scheme: light;
+
+  --surface-1: #fcfcfb;
+  --page: #f9f9f7;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --gridline: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+
+  /* Categorical: solar / home / battery */
+  --solar: #eb6834;
+  --home: #2a78d6;
+  --battery: #1baf7a;
+
+  /* Diverging poles for grid flow. Warm/cool so they read as opposite. */
+  --grid-import: #d03b3b;
+  --grid-export: #2a78d6;
+  --grid-neutral: #f0efec;
+
+  /* Status — reserved, never reused as a series colour. */
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+
+  /* Battery meter track: a lighter step of the battery ramp, so state reads across the whole bar. */
+  --battery-track: #cdeee0;
+
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(11, 11, 11, 0.04);
+
+  --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --gridline: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+
+    --solar: #d95926;
+    --home: #3987e5;
+    --battery: #199e70;
+
+    --grid-import: #d03b3b;
+    --grid-export: #3987e5;
+    --grid-neutral: #383835;
+
+    --battery-track: #143f31;
+    --shadow: none;
+  }
+}
+
+/* The explicit toggle must win in both directions, so it is declared separately. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --surface-1: #1a1a19;
+  --page: #0d0d0d;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #898781;
+  --gridline: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.1);
+
+  --solar: #d95926;
+  --home: #3987e5;
+  --battery: #199e70;
+
+  --grid-import: #d03b3b;
+  --grid-export: #3987e5;
+  --grid-neutral: #383835;
+
+  --battery-track: #143f31;
+  --shadow: none;
+}

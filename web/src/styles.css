@@ -1,0 +1,827 @@
+/*
+ * Layout for a 1366×768 wall display.
+ *
+ * Sized so the whole dashboard fits without scrolling on the target laptop, and reflows to
+ * something sensible on a phone. Marks follow the dataviz specs: 2px lines, solid hairline grid
+ * (never dashed), recessive axes, text in ink tokens rather than series colours.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--page);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  height: 100%;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 8px 12px 4px;
+  gap: 8px;
+  transition: opacity 180ms ease;
+}
+
+/* No skeleton flash on refetch — hold the previous render, slightly faded. */
+.app.is-loading {
+  opacity: 0.55;
+}
+
+/* A stale reading must not look live. */
+.app.is-stale .flow,
+.app.is-stale .panel-side {
+  filter: saturate(0.25);
+  opacity: 0.75;
+}
+
+/* ── top bar ───────────────────────────────────────────────────────────── */
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+}
+
+.bar-title {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+.bar-title strong {
+  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.bar-sep {
+  color: var(--text-muted);
+}
+
+.bar-mock {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--warning);
+  color: #0b0b0b;
+  font-weight: 600;
+}
+
+.bar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.bar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-status .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--good);
+}
+
+.bar-status.is-connecting .dot,
+.bar-status.is-reconnecting .dot {
+  background: var(--warning);
+}
+
+.bar-status.is-stale {
+  color: var(--warning);
+}
+
+.bar-status.is-stale .dot {
+  background: var(--warning);
+}
+
+.bar-quota {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.bar-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.bar-btn:hover {
+  color: var(--text-primary);
+}
+
+/* ── layout ────────────────────────────────────────────────────────────── */
+
+/*
+ * Tuned for 1366x768 with no scrolling. The top row is capped so the chart keeps real height:
+ * an energy dashboard whose chart is a 100px sliver has buried the thing people actually read.
+ */
+.grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(300px, 0.95fr) minmax(320px, 1fr);
+  grid-template-rows: minmax(0, 300px) auto minmax(0, 1fr);
+  grid-template-areas:
+    'flow side'
+    'totals totals'
+    'chart chart';
+  gap: 8px;
+}
+
+.panel {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 10px 14px;
+  min-height: 0;
+}
+
+.panel-flow {
+  grid-area: flow;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+}
+
+.panel-side {
+  grid-area: side;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.panel-chart {
+  grid-area: chart;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  padding-bottom: 4px;
+}
+
+/* A full-width strip: six figures reading left to right, the day's story in one line. */
+.panel-totals {
+  grid-area: totals;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 7px 14px;
+}
+
+.panel-totals .panel-title {
+  flex: none;
+}
+
+.panel-totals .totals {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-totals .tile-value {
+  font-size: 17px;
+}
+
+.panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ── flow diagram ──────────────────────────────────────────────────────── */
+
+.flow {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+}
+
+.flow-node-bg {
+  fill: var(--surface-1);
+  stroke-width: 2;
+  opacity: 1;
+}
+
+.flow-node.is-dim .flow-node-bg {
+  stroke: var(--axis) !important;
+}
+
+.flow-node.is-dim .flow-node-value,
+.flow-node.is-dim .flow-node-icon {
+  fill: var(--text-muted);
+}
+
+.flow-node-icon {
+  font-size: 17px;
+  fill: var(--text-secondary);
+}
+
+.flow-node-value {
+  font-size: 21px;
+  font-weight: 600;
+  fill: var(--text-primary);
+}
+
+.flow-node-unit {
+  font-size: 10px;
+  fill: var(--text-muted);
+}
+
+.flow-node-label {
+  font-size: 12px;
+  font-weight: 500;
+  fill: var(--text-secondary);
+}
+
+.flow-edge-track {
+  fill: none;
+  stroke-width: 2;
+  opacity: 0.22;
+}
+
+.flow-edge-dash {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 1 13;
+  animation-name: flow-dash;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+
+/* Direction still reads from the arrowhead and the number. */
+@media (prefers-reduced-motion: reduce) {
+  .flow-edge-dash {
+    animation: none;
+    stroke-dasharray: none;
+    stroke-width: 2;
+  }
+}
+
+.flow-edge-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-secondary);
+  text-anchor: middle;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── SOC meter ─────────────────────────────────────────────────────────── */
+
+.soc {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+
+.soc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.soc-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.soc-badge {
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.soc-figure {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 2px 0 6px;
+}
+
+/* The one hero figure. Proportional figures: tabular-nums looks loose at this size. */
+.soc-value {
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.soc-unit {
+  font-size: 20px;
+  color: var(--text-secondary);
+}
+
+.soc-track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--battery-track);
+  overflow: hidden;
+}
+
+.soc-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 400ms ease;
+}
+
+.soc-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.soc-soh {
+  color: var(--text-muted);
+}
+
+/* ── stat tiles ────────────────────────────────────────────────────────── */
+
+.tiles,
+.totals {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px 10px;
+  min-height: 0;
+}
+
+.tile-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.tile-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.tile-value {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--text-primary);
+}
+
+.tile-unit {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-left: 3px;
+}
+
+.tile-note {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* ── chart ─────────────────────────────────────────────────────────────── */
+
+.chart-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend-key {
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+/* The wrapper owns the space; the SVG is measured against it and drawn at true pixel size. */
+.chart-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.chart {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.chart-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Solid hairlines, never dashed — dashing reads as "threshold" when it is just a grid. */
+.chart-grid {
+  stroke: var(--gridline);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-axis {
+  stroke: var(--axis);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-crosshair {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  opacity: 0.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.chart-tick,
+.chart-unit,
+.chart-pole {
+  font-size: 10px;
+  fill: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-pole {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  fill: var(--text-muted);
+}
+
+.chart-tooltip-suffix {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-left: 3px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.chart-empty {
+  padding: 28px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.chart-tooltip {
+  position: absolute;
+  top: 4px;
+  z-index: 5;
+  min-width: 150px;
+  padding: 7px 9px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.chart-tooltip-time {
+  font-weight: 600;
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.6;
+}
+
+.chart-tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.chart-tooltip-dot.is-hollow {
+  border: 1.5px solid var(--text-muted);
+  background: transparent;
+}
+
+.chart-tooltip-label {
+  color: var(--text-secondary);
+}
+
+.chart-tooltip-value {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* ── table view ────────────────────────────────────────────────────────── */
+
+.chart-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.chart-table,
+.diag-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-table th,
+.diag-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-1);
+  text-align: right;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chart-table th:first-child,
+.diag-table th:first-child,
+.chart-table td:first-child,
+.diag-table td:first-child {
+  text-align: left;
+}
+
+.chart-table td,
+.diag-table td {
+  text-align: right;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--gridline);
+  color: var(--text-secondary);
+}
+
+/* ── diagnostics ───────────────────────────────────────────────────────── */
+
+.diag-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 20px;
+}
+
+.diag {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: min(880px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  padding: 16px 20px 20px;
+}
+
+.diag-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.diag h2 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.diag h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 16px 0 6px;
+}
+
+.diag-close {
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.diag-quota {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.diag-quota-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--gridline);
+  overflow: hidden;
+}
+
+.diag-quota-fill {
+  height: 100%;
+}
+
+.diag-grid {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 3px 12px;
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
+.diag-grid dt {
+  color: var(--text-muted);
+}
+
+.diag-grid dd {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.diag-config {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  word-break: break-all;
+  color: var(--text-muted);
+}
+
+.diag-table .is-bad td {
+  color: var(--critical);
+}
+
+.diag-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.diag-err {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.diag-muted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.diag-error {
+  color: var(--critical);
+  font-size: 12px;
+}
+
+/* ── footer hint ───────────────────────────────────────────────────────── */
+
+.hint {
+  text-align: right;
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.65;
+}
+
+kbd {
+  font-family: inherit;
+  font-size: 10px;
+  padding: 0 3px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+/* ── wider screens: give today's totals their own panel ────────────────── */
+
+@media (min-width: 1500px) {
+  .grid {
+    grid-template-rows: minmax(0, 340px) auto minmax(0, 1fr);
+  }
+}
+
+/* ── narrow screens: stack ─────────────────────────────────────────────── */
+
+@media (max-width: 860px) {
+  .app {
+    height: auto;
+    min-height: 100%;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    grid-template-areas:
+      'side'
+      'flow'
+      'totals'
+      'chart';
+  }
+
+  .panel-totals {
+    flex-wrap: wrap;
+  }
+
+  .panel-totals .totals {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 14px 24px;
+  }
+
+  .flow {
+    max-height: 340px;
+  }
+
+  .legend {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .chart-head {
+    flex-wrap: wrap;
+  }
+}
