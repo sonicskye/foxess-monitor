@@ -103,6 +103,16 @@ change a setting on your inverter.
 
 To restrict it to the kiosk machine only, set `HOST=127.0.0.1` in `.env`.
 
+## Using the data elsewhere
+
+`/api/snapshot` serves every reading as JSON on your network, so another system can consume it
+without touching FoxESS — which matters, because the **1440 calls/day limit is shared across every
+client using your API key**, and a second FoxESS integration would exhaust it.
+
+See **[`docs/SMART-HOME.md`](docs/SMART-HOME.md)** for the options in plain English: logging to a
+CSV with one cron line, connecting Home Assistant (with copy-paste config), MQTT, and why pushing
+into Tuya's cloud is the route to avoid.
+
 ## Configuration
 
 All via `.env` — see [`.env.example`](.env.example) for the annotated list. The essentials:

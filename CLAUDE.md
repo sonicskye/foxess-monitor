@@ -16,6 +16,8 @@ Then, as needed:
   Use this file instead of trying to re-scrape them.
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) — why things are the way they are.
 - [`docs/RUNBOOK.md`](docs/RUNBOOK.md) — operating it on the laptop.
+- [`docs/SMART-HOME.md`](docs/SMART-HOME.md) — consuming the data from Home Assistant, MQTT or a
+  script, and why a second FoxESS integration must not share the API key.
 
 ## Three rules
 
