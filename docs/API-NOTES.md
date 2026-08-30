@@ -159,8 +159,13 @@ Response:
 ]}
 ```
 
-`time` is the **inverter's own local clock** in `yyyy-MM-dd HH:mm:ss zZ` format. Use it to detect a
-stale/offline inverter — a variable missing from `datas` simply wasn't found and is not returned.
+`time` is the **inverter's own local clock** in `yyyy-MM-dd HH:mm:ss zZ` format. A variable missing
+from `datas` simply wasn't found and is not returned.
+
+> **⚠️ `time` is not always sent.** On a real EQ4800 system no datum carries it at all. Anything
+> that treats its absence as an error will misbehave — see `DECISIONS.md` §14, where doing exactly
+> that silently emptied the chart on healthy hardware. Measure freshness against the inverter clock
+> when present, and against your own fetch time when not.
 
 ### `POST /op/v0/device/history/query` — time series
 

@@ -102,6 +102,27 @@ presenting old numbers as current.
 journalctl -u foxess-monitor | grep stale     # logged once on the way out, once on the way back
 ```
 
+### The chart is missing hours, or the display looks washed out
+
+If the live tiles update but the chart stops part-way through the day, check whether readings are
+being recorded:
+
+```sh
+curl -s localhost:8080/api/series | python3 -c "import json,sys; print(json.load(sys.stdin)['sampleCount'])"
+curl -s localhost:8080/api/snapshot | python3 -c "import json,sys; s=json.load(sys.stdin)['snapshot']; print('stale:', s['stale'], '| ageSource:', s['ageSource'])"
+```
+
+Samples are only recorded for readings that are **not stale**, so anything that wrongly marks
+readings stale silently empties the chart. `ageSource: local` means your inverter does not send its
+own clock and freshness is measured from when we fetched the reading — that is normal on some
+hardware and is handled.
+
+If it says `stale: true` while the job health shows successful polls, the inverter has genuinely
+stopped reporting; the values will be frozen rather than zero.
+
+Restarting re-runs the startup backfill, which refills the current day from `history/query` (one
+API call) — worth doing after fixing a gap.
+
 ### The battery panel shows "Usable —" or "Reserved unknown"
 
 `Reserved` tells you which failure it is:

@@ -149,16 +149,27 @@ export function App() {
         </div>
 
         <div class="bar-right">
+          {/*
+            * Times come from `readingAtMs`, not `inverterTimeMs`. Some inverters never send their
+            * own clock, and displaying that field directly rendered "live · —" on those systems.
+            */}
           {stale ? (
             <span class="bar-status is-stale" title="The inverter has not reported recently">
               <span class="dot" aria-hidden="true" />
-              not live · last seen {relativeAge(snapshot?.inverterTimeMs ?? null, now)}
+              not live · last seen {relativeAge(snapshot?.readingAtMs ?? null, now)}
             </span>
           ) : (
-            <span class={`bar-status is-${connection}`}>
+            <span
+              class={`bar-status is-${connection}`}
+              title={
+                snapshot?.ageSource === 'local'
+                  ? 'This inverter does not report its own clock, so freshness is measured from when the reading was fetched.'
+                  : undefined
+              }
+            >
               <span class="dot" aria-hidden="true" />
               {connection === 'live' ? 'live' : connection === 'connecting' ? 'connecting' : 'reconnecting'}
-              {snapshot && <> · {clockTime(snapshot.inverterTimeMs, timeZone)}</>}
+              {snapshot && <> · {clockTime(snapshot.readingAtMs, timeZone)}</>}
             </span>
           )}
 

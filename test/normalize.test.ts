@@ -152,17 +152,64 @@ describe('staleness', () => {
     assert.equal(s.stale, true);
   });
 
-  test('no timestamp at all is treated as stale, not as now', () => {
-    // The safe direction: we cannot prove it is current, so the display must not claim it is.
+  test('an inverter that sends NO timestamp is not stale — the poll just succeeded', () => {
+    /*
+     * Regression. This previously asserted the opposite, on the reasoning that a missing timestamp
+     * meant we could not prove the reading was current.
+     *
+     * On a real EQ4800 system the inverter never sends `time`, so every one of 161 successful polls
+     * over four hours was marked stale. The poller only records samples for non-stale readings, so
+     * NO samples were stored at all: the chart froze at the startup backfill while the live tiles
+     * kept updating, and the two visibly disagreed. Solar was worst because the backfill covered
+     * only the pre-dawn hours, leaving the whole daylight period at 0.00 kW.
+     */
     const s = normalizeSnapshot({ deviceSN: 'SN', datas: [{ variable: 'SoC', value: 74 }] }, { now: NOW });
-    assert.equal(s.stale, true);
-    assert.equal(s.inverterTimeMs, null);
+
+    assert.equal(s.stale, false, 'a reading we just received is not stale');
+    assert.equal(s.inverterTimeMs, null, 'but we still record that the inverter gave no clock');
+    assert.equal(s.ageSource, 'local', 'and that freshness was judged locally');
+    assert.equal(s.readingAtMs, NOW);
   });
 
-  test('an unparseable timestamp is stale rather than a wrong instant', () => {
+  test('a local-clock reading still goes stale once polling stops', () => {
+    // The fallback must not mean "never stale" — if nothing has been received for a while, say so.
+    const received = normalizeSnapshot(
+      { deviceSN: 'SN', datas: [{ variable: 'SoC', value: 74 }] },
+      { now: NOW },
+    );
+    const laterStale = normalizeSnapshot(
+      { deviceSN: 'SN', datas: [{ variable: 'SoC', value: 74 }] },
+      { now: NOW, staleAfterMs: -1 },
+    );
+
+    assert.equal(received.stale, false);
+    assert.equal(laterStale.stale, true, 'the age check still applies to the local clock');
+  });
+
+  test('the inverter clock is preferred when it IS sent', () => {
+    // The stronger signal: it catches FoxESS serving cached values for an offline inverter.
+    const s = normalizeSnapshot(real({ SoC: 74 }, FRESH), { now: NOW });
+
+    assert.equal(s.ageSource, 'inverter');
+    assert.equal(s.readingAtMs, s.inverterTimeMs);
+    assert.equal(s.stale, false);
+  });
+
+  test('an old inverter clock still wins over a fresh poll', () => {
+    // We received it now, but the inverter says the data is hours old — that is the case the
+    // inverter clock exists to catch, and it must not be overridden by our receipt time.
+    const s = normalizeSnapshot(real({ SoC: 74 }, '2026-08-29 10:00:00 GMT+1'), { now: NOW });
+
+    assert.equal(s.ageSource, 'inverter');
+    assert.equal(s.stale, true, 'a fresh poll of stale data is still stale');
+  });
+
+  test('an unparseable timestamp falls back to the local clock, not to a wrong instant', () => {
     const s = normalizeSnapshot(real({ SoC: 74 }, 'yesterday-ish'), { now: NOW });
-    assert.equal(s.stale, true);
-    assert.equal(s.inverterTimeMs, null);
+
+    assert.equal(s.inverterTimeMs, null, 'never guess an instant from junk');
+    assert.equal(s.ageSource, 'local');
+    assert.equal(s.stale, false, 'the poll still succeeded, so the reading is current');
   });
 
   test('the boundary is STALE_AFTER_MS', () => {

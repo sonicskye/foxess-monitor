@@ -321,3 +321,37 @@ never shown, which is why the error stayed invisible; without it there is no way
 "stored" is most of the pack or a fraction of it. It is formatted to two decimals rather than the
 usual one, because it is a fixed figure typed in from an invoice and `27.96` confirms the setting
 took effect in a way `28.0` does not.
+
+---
+
+## 14. Freshness falls back to our poll time when the inverter has no clock
+
+**Decision.** A reading's age is measured against the inverter's own `time` field when it sends one,
+and against the moment our poll succeeded when it does not. `Snapshot.ageSource` records which.
+
+**Why.** This previously treated a missing timestamp as automatically stale, reasoning that we could
+not *prove* the reading was current. That is wrong for hardware that simply never sends the field.
+
+Observed on a real EQ4800 system: `real/query` returns no `time` on any datum, so **every one of 161
+successful polls across four hours was flagged stale**. The poller only records samples for
+non-stale readings —
+
+```ts
+if (!snapshot.stale) store.append(toSample(snapshot));
+```
+
+— so **not one sample was stored**. The chart showed only what the startup backfill had fetched
+(00:03–05:56 local) while the live tiles kept updating correctly, and the two visibly disagreed.
+Solar looked worst because the backfill covered only pre-dawn hours, leaving the entire daylight
+period reading 0.00 kW while the panel showed 1.04 kW.
+
+The whole UI was also desaturated by the stale styling, so a perfectly healthy system looked broken.
+
+**The trade, stated plainly.** The inverter's clock is the stronger signal: it catches FoxESS
+serving cached values for an inverter that has gone offline, which our own receipt time cannot. We
+keep using it wherever it exists, and only fall back where there is no alternative. `ageSource` is
+carried through to the UI so the tooltip can say freshness was judged locally.
+
+**Guard rails.** The fallback is not "never stale" — the age check still applies, so if polling stops
+the reading still goes stale on the local clock. And an inverter clock that reports old data still
+wins over a fresh poll: a recent fetch of stale data is stale. Both are pinned by tests.

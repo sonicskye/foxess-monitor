@@ -25,6 +25,10 @@ export interface Snapshot {
   runningState: number | null;
   inverterTime: string | null;
   inverterTimeMs: number | null;
+  /** Which clock the reading's age was measured against. */
+  ageSource: 'inverter' | 'local';
+  /** Epoch ms the reading is judged to date from — always set, unlike inverterTimeMs. */
+  readingAtMs: number;
   stale: boolean;
 }
 

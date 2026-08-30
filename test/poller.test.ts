@@ -202,6 +202,43 @@ describe('discovery failure no longer kills the dashboard', () => {
   });
 });
 
+describe('an inverter that never sends its own clock', () => {
+  test('still gets its readings recorded as chart samples', async () => {
+    /*
+     * The reported failure, end to end. A real EQ4800 system sends no `time` field on any datum.
+     * Every reading was therefore marked stale, and because the poller only stores samples for
+     * non-stale readings, 161 successful polls over four hours produced ZERO samples: the chart
+     * froze at the startup backfill while the live tiles kept updating.
+     */
+    const withoutTime = createMockEndpoints({ timeZone: TZ, now: () => NOW });
+    const api: Endpoints = {
+      ...withoutTime,
+      async realQuery(sns: string[]) {
+        const results = await withoutTime.realQuery(sns);
+        // Strip the timestamp the mock normally provides, as this hardware does.
+        return results.map((r) => ({
+          ...r,
+          datas: r.datas.map(({ time: _drop, ...rest }) => rest),
+        }));
+      },
+    };
+
+    const p = build(api);
+    await p.start();
+    await settle(40);
+
+    const snapshot = p.primary();
+    assert.ok(snapshot, 'a reading should have arrived');
+    assert.equal(snapshot.inverterTimeMs, null, 'the inverter really sent no clock');
+    assert.equal(snapshot.ageSource, 'local');
+    assert.equal(snapshot.stale, false, 'a reading we just fetched is not stale');
+
+    // The assertion that actually matters: the chart gets data.
+    const stored = store.readDay(new Date(NOW));
+    assert.ok(stored.length > 0, 'readings must be recorded even without an inverter timestamp');
+  });
+});
+
 describe('healthy startup is unaffected', () => {
   test('every job succeeds and the battery figures are populated', async () => {
     const p = build(createMockEndpoints({ timeZone: TZ, now: () => NOW }));

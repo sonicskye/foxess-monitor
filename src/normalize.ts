@@ -59,8 +59,18 @@ export interface Snapshot {
   /** `inverterTime` parsed to epoch ms, or null if absent/unparseable. */
   inverterTimeMs: number | null;
   /**
-   * True when the reading is older than STALE_AFTER_MS, or the inverter gave no time at all.
-   * A wall display must never present stale numbers as live.
+   * Which clock the age was measured against.
+   *
+   * `'inverter'` is preferred and catches FoxESS serving cached values for an offline inverter.
+   * `'local'` means the inverter sent no usable timestamp, so freshness is judged by when our own
+   * poll succeeded — weaker, but the only signal available on such hardware.
+   */
+  ageSource: 'inverter' | 'local';
+  /** Epoch ms the reading is judged to date from, per `ageSource`. */
+  readingAtMs: number;
+  /**
+   * True when the reading is older than STALE_AFTER_MS. A wall display must never present stale
+   * numbers as live.
    */
   stale: boolean;
 }
@@ -147,6 +157,24 @@ export function normalizeSnapshot(
   const inverterTime = result.datas.find((d) => d.time)?.time ?? null;
   const inverterTimeMs = parseInverterTime(inverterTime);
 
+  /*
+   * Age is measured against the inverter's own clock when it sends one, and against our poll time
+   * when it does not.
+   *
+   * This used to treat a missing timestamp as automatically stale, on the reasoning that we could
+   * not *prove* the reading was current. That is wrong for hardware that simply never sends the
+   * field: one real EQ4800 system polled successfully 161 times in four hours and every single
+   * reading was marked stale. Because the poller only records samples for non-stale readings, that
+   * meant no samples at all — the chart froze at whatever the startup backfill had fetched while
+   * the live tiles kept updating, so the two visibly disagreed.
+   *
+   * If a poll just succeeded, the data is as current as the API can tell us. The trade is that we
+   * lose the ability to spot FoxESS serving cached values for an offline inverter — `ageSource`
+   * records which signal was available so the UI can be honest about it.
+   */
+  const ageSource: 'inverter' | 'local' = inverterTimeMs === null ? 'local' : 'inverter';
+  const readingAtMs = inverterTimeMs ?? now;
+
   return {
     ts: new Date(now).toISOString(),
     deviceSN: result.deviceSN,
@@ -167,8 +195,9 @@ export function normalizeSnapshot(
 
     inverterTime,
     inverterTimeMs,
-    // No timestamp means we cannot prove the reading is current, so treat it as stale.
-    stale: inverterTimeMs === null || now - inverterTimeMs > staleAfterMs,
+    ageSource,
+    readingAtMs,
+    stale: now - readingAtMs > staleAfterMs,
   };
 }
 
